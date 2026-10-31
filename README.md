@@ -1,6 +1,7 @@
 # aft-mcp
 
-An [MCP](https://modelcontextprotocol.io) server for the AFT API. It fetches AFT's Swagger 2.0 spec, converts it to
+An [MCP](https://modelcontextprotocol.io) server for the API of [AFT](https://github.com/sjefferson99/aft) (Aim,
+Focus, Track), a self-hosted application for tasks. It fetches AFT's Swagger 2.0 spec, converts it to
 OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://gofastmcp.com).
 
 ## What is exposed
@@ -41,6 +42,25 @@ required setting stops the server at startup with a clear message.
 \* Not needed when `AFT_SPEC_FILE` is set.
 
 `.env` is git-ignored. Never commit real credentials.
+
+### Recommended: a dedicated AFT user
+
+Don't use your own AFT account. Create a separate user for the agent (for example `claude`) and put its email and
+password in `.env`.
+
+- **Limit it to specific boards.** In AFT, give that user access only to the boards the agent should work on, with the
+  lowest role that does the job: a read-only role for boards it should only look at, an edit role for boards where it
+  should make changes. It then cannot see or touch anything else, whatever tools the MCP server exposes.
+- **Why not rely on the server alone?** This server's allowlist (see [What is exposed](#what-is-exposed)) limits which
+  *kinds* of action are possible. AFT's own permissions limit *which boards* they apply to. Use both. The server cannot
+  restrict by board.
+- **Attribution.** Comments, edits and assignments made through the MCP are recorded against that user, so you can
+  tell the agent's work from yours. It can also be assigned cards.
+- **Revocation.** If the credentials leak or the agent misbehaves, disable that one user without affecting your own
+  account.
+
+The tools only work where the user has permission. A write on a board where it has read-only access is refused by AFT
+with a 403. `get_roles_my_roles` and `get_permissions_mapping` show what the user can currently do.
 
 ## Running
 
