@@ -6,11 +6,26 @@ HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "tra
 SCHEMA_KEYS = (
     "type", "format", "items", "enum", "default", "maximum", "minimum",
     "exclusiveMaximum", "exclusiveMinimum", "maxLength", "minLength",
-    "pattern", "maxItems", "minItems", "uniqueItems", "multipleOf",
+    "pattern", "maxItems", "minItems", "uniqueItems", "multipleOf", "x-nullable",
 )
 DEFAULT_MEDIA_TYPE = "application/json"
 FORM_MEDIA_TYPE = "application/x-www-form-urlencoded"
 MULTIPART_MEDIA_TYPE = "multipart/form-data"
+
+# Swagger 2.0 collectionFormat -> OpenAPI 3.0 (style, explode) by parameter location.
+# tsv has no 3.0 equivalent and is left to the default style.
+_COLLECTION_FORMATS = {
+    "csv": {"query": ("form", False), "cookie": ("form", False), "path": ("simple", False), "header": ("simple", False)},
+    "ssv": {"query": ("spaceDelimited", False)},
+    "pipes": {"query": ("pipeDelimited", False)},
+    "multi": {"query": ("form", True), "cookie": ("form", True)},
+}
+_OAUTH_FLOWS = {
+    "implicit": "implicit",
+    "password": "password",
+    "application": "clientCredentials",
+    "accessCode": "authorizationCode",
+}
 
 
 def convert(spec: dict) -> dict:
@@ -21,13 +36,14 @@ def convert(spec: dict) -> dict:
     spec = copy.deepcopy(spec)
     global_consumes = spec.pop("consumes", None)
     global_produces = spec.pop("produces", None)
+    global_params = spec.get("parameters", {})
 
     result: dict = {
         "openapi": "3.0.3",
         "info": spec.get("info", {}),
         "servers": _servers(spec),
         "paths": {
-            path: _path_item(item, global_consumes, global_produces)
+            path: _path_item(item, global_params, global_consumes, global_produces)
             for path, item in spec.get("paths", {}).items()
         },
     }
@@ -37,6 +53,10 @@ def convert(spec: dict) -> dict:
     components: dict = {}
     if spec.get("definitions"):
         components["schemas"] = spec["definitions"]
+    if spec.get("responses"):
+        components["responses"] = {
+            name: _response(r, global_produces or [DEFAULT_MEDIA_TYPE]) for name, r in spec["responses"].items()
+        }
     if spec.get("securityDefinitions"):
         components["securitySchemes"] = {
             name: _security_scheme(s) for name, s in spec["securityDefinitions"].items()
@@ -47,7 +67,7 @@ def convert(spec: dict) -> dict:
         if key in spec:
             result[key] = spec[key]
 
-    return _rewrite_refs(result)
+    return _normalise(_rewrite_refs(result))
 
 
 def _assign_operation_ids(paths: dict) -> None:
@@ -96,32 +116,55 @@ def _servers(spec: dict) -> list[dict]:
 
 
 def _security_scheme(scheme: dict) -> dict:
-    if scheme.get("type") == "basic":
+    kind = scheme.get("type")
+    if kind == "basic":
         return {"type": "http", "scheme": "basic", "description": scheme.get("description", "")}
+    if kind == "oauth2":
+        flow = {
+            k: scheme[k] for k in ("authorizationUrl", "tokenUrl") if k in scheme
+        }
+        flow["scopes"] = scheme.get("scopes", {})
+        out = {"type": "oauth2", "flows": {_OAUTH_FLOWS.get(scheme.get("flow"), "implicit"): flow}}
+        if "description" in scheme:
+            out["description"] = scheme["description"]
+        return out
     return scheme
 
 
-def _path_item(item: dict, global_consumes, global_produces) -> dict:
-    shared_params = item.get("parameters", [])
+def _deref_param(param: dict, global_params: dict) -> dict:
+    """Inline a '#/parameters/X' reference so the parameter can be classified."""
+    ref = param.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/parameters/"):
+        return global_params[ref.rsplit("/", 1)[1]]
+    return param
+
+
+def _path_item(item: dict, global_params: dict, global_consumes, global_produces) -> dict:
+    shared_params = [_deref_param(p, global_params) for p in item.get("parameters", [])]
     out = {k: v for k, v in item.items() if k not in HTTP_METHODS and k != "parameters"}
-    if shared_params:
-        out["parameters"] = [_parameter(p) for p in shared_params if p.get("in") not in ("body", "formData")]
+    plain = [_parameter(p) for p in shared_params if p.get("in") not in ("body", "formData")]
+    if plain:
+        out["parameters"] = plain
+    # Path-level body/formData parameters have no 3.0 path-level home: they apply to each operation.
+    inherited = [p for p in shared_params if p.get("in") in ("body", "formData")]
     for method, operation in item.items():
         if method in HTTP_METHODS:
-            out[method] = _operation(operation, shared_params, global_consumes, global_produces)
+            out[method] = _operation(operation, inherited, global_params, global_consumes, global_produces)
     return out
 
 
-def _operation(op: dict, shared_params: list, global_consumes, global_produces) -> dict:
+def _operation(op: dict, inherited: list, global_params: dict, global_consumes, global_produces) -> dict:
     consumes = op.get("consumes") or global_consumes or [DEFAULT_MEDIA_TYPE]
     produces = op.get("produces") or global_produces or [DEFAULT_MEDIA_TYPE]
 
-    params = [p for p in op.get("parameters", [])]
+    own = [_deref_param(p, global_params) for p in op.get("parameters", [])]
+    overridden = {(p["name"], p["in"]) for p in own}
+    params = [p for p in inherited if (p["name"], p["in"]) not in overridden] + own
     body = next((p for p in params if p["in"] == "body"), None)
     form = [p for p in params if p["in"] == "formData"]
 
     out = {k: v for k, v in op.items() if k not in ("parameters", "responses", "consumes", "produces")}
-    plain = [_parameter(p) for p in params if p["in"] not in ("body", "formData")]
+    plain = [_parameter(p) for p in own if p["in"] not in ("body", "formData")]
     if plain:
         out["parameters"] = plain
 
@@ -133,19 +176,16 @@ def _operation(op: dict, shared_params: list, global_consumes, global_produces) 
         }
     elif form:
         multipart = MULTIPART_MEDIA_TYPE in consumes or any(p.get("type") == "file" for p in form)
-        out["requestBody"] = {
-            "content": {
-                (MULTIPART_MEDIA_TYPE if multipart else FORM_MEDIA_TYPE): {
-                    "schema": {
-                        "type": "object",
-                        "properties": {p["name"]: _form_property(p) for p in form},
-                        "required": [p["name"] for p in form if p.get("required")],
-                    }
-                }
-            }
+        schema = {
+            "type": "object",
+            "properties": {p["name"]: _form_property(p) for p in form},
         }
-        if not out["requestBody"]["content"][next(iter(out["requestBody"]["content"]))]["schema"]["required"]:
-            del out["requestBody"]["content"][next(iter(out["requestBody"]["content"]))]["schema"]["required"]
+        required = [p["name"] for p in form if p.get("required")]
+        if required:
+            schema["required"] = required
+        out["requestBody"] = {
+            "content": {(MULTIPART_MEDIA_TYPE if multipart else FORM_MEDIA_TYPE): {"schema": schema}}
+        }
 
     out["responses"] = {
         code: _response(resp, produces) for code, resp in op.get("responses", {}).items()
@@ -161,12 +201,18 @@ def _schema_from(param: dict) -> dict:
 
 
 def _parameter(param: dict) -> dict:
+    if "$ref" in param:
+        return param
     out = {
         k: param[k] for k in ("name", "in", "description", "required", "allowEmptyValue") if k in param
     }
     if param["in"] == "path":
         out["required"] = True
     out["schema"] = param.get("schema") or _schema_from(param)
+    if param.get("type") == "array":
+        style, explode = _COLLECTION_FORMATS.get(param.get("collectionFormat", "csv"), {}).get(param["in"], (None, None))
+        if style:
+            out["style"], out["explode"] = style, explode
     return out
 
 
@@ -178,9 +224,16 @@ def _form_property(param: dict) -> dict:
 
 
 def _response(resp: dict, produces: list[str]) -> dict:
+    if "$ref" in resp:
+        return resp
     out = {"description": resp.get("description", "")}
+    examples = resp.get("examples", {})
     if "schema" in resp:
         out["content"] = {mt: {"schema": resp["schema"]} for mt in produces}
+    if examples:
+        content = out.setdefault("content", {})
+        for mt, example in examples.items():
+            content.setdefault(mt, {})["example"] = example
     if "headers" in resp:
         out["headers"] = {
             name: {"description": h.get("description", ""), "schema": _schema_from(h)}
@@ -190,12 +243,36 @@ def _response(resp: dict, produces: list[str]) -> dict:
 
 
 def _rewrite_refs(node):
-    """Point '#/definitions/X' refs at '#/components/schemas/X'."""
+    """Point '#/definitions/X' refs at '#/components/schemas/X', and likewise for responses."""
     if isinstance(node, dict):
         return {
-            k: (v.replace("#/definitions/", "#/components/schemas/") if k == "$ref" and isinstance(v, str) else _rewrite_refs(v))
+            k: (_rewrite_ref(v) if k == "$ref" and isinstance(v, str) else _rewrite_refs(v))
             for k, v in node.items()
         }
     if isinstance(node, list):
         return [_rewrite_refs(v) for v in node]
+    return node
+
+
+def _rewrite_ref(ref: str) -> str:
+    return ref.replace("#/definitions/", "#/components/schemas/").replace("#/responses/", "#/components/responses/")
+
+
+def _normalise(node):
+    """Rewrite Swagger 2.0 schema idioms that are not valid in 3.0, anywhere in the document.
+
+    'x-nullable' becomes 'nullable', and a leftover 'type: file' (a schema, not a parameter)
+    becomes a binary string.
+    """
+    if isinstance(node, dict):
+        out = {k: _normalise(v) for k, v in node.items()}
+        if "x-nullable" in out:
+            nullable = out.pop("x-nullable")
+            if isinstance(nullable, bool):
+                out.setdefault("nullable", nullable)
+        if out.get("type") == "file":
+            out["type"], out["format"] = "string", "binary"
+        return out
+    if isinstance(node, list):
+        return [_normalise(v) for v in node]
     return node
