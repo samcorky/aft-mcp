@@ -61,7 +61,7 @@ SIDE_EFFECT_GET_PATTERNS = [
 
 
 # Write operations allowed as tools: changes to things inside a board that can be
-# undone. No creating or deleting boards, cards or columns, and nothing board-level
+# undone, plus adding columns and cards. No creating or deleting boards, no deleting columns or cards, and nothing board-level
 # (rename, owner, public link, import). DELETE is never exposed.
 ALLOWED_WRITES = [
     ("PATCH", r"^/api/cards/\{card_id\}$"),  # edit title/description, move between columns
@@ -75,6 +75,8 @@ ALLOWED_WRITES = [
     ("POST", r"^/api/cards/\{card_id\}/checklist-items$"),
     ("PATCH", r"^/api/checklist-items/\{item_id\}$"),
     ("PATCH", r"^/api/columns/\{column_id\}$"),  # rename / reorder
+    ("POST", r"^/api/boards/\{board_id\}/columns$"),  # add a column (no MCP delete to undo it)
+    ("POST", r"^/api/columns/\{column_id\}/cards$"),  # add a card (no MCP delete to undo it)
 ]
 
 
