@@ -54,9 +54,41 @@ def build_client() -> httpx2.AsyncClient:
     )
 
 
+# GET endpoints that change state, so must not be exposed as read-only tools.
+SIDE_EFFECT_GET_PATTERNS = [
+    r"^/api/database/backup$",  # creates a database backup
+]
+
+
+# Write operations allowed as tools: changes to things inside a board that can be
+# undone. No creating or deleting boards, cards or columns, and nothing board-level
+# (rename, owner, public link, import). DELETE is never exposed.
+ALLOWED_WRITES = [
+    ("PATCH", r"^/api/cards/\{card_id\}$"),  # edit title/description, move between columns
+    ("PATCH", r"^/api/cards/\{card_id\}/done$"),
+    ("PATCH", r"^/api/cards/\{card_id\}/archive$"),
+    ("PATCH", r"^/api/cards/\{card_id\}/unarchive$"),
+    ("POST", r"^/api/cards/batch/archive$"),
+    ("POST", r"^/api/cards/batch/unarchive$"),
+    ("PUT", r"^/api/cards/\{card_id\}/assignees$"),
+    ("POST", r"^/api/cards/\{card_id\}/comments$"),
+    ("POST", r"^/api/cards/\{card_id\}/checklist-items$"),
+    ("PATCH", r"^/api/checklist-items/\{item_id\}$"),
+    ("PATCH", r"^/api/columns/\{column_id\}$"),  # rename / reorder
+]
+
+
 def build_route_maps() -> list[RouteMap]:
-    """Expose GET endpoints as MCP tools and exclude everything else."""
+    """Expose safe GET endpoints and allowed writes as MCP tools; exclude everything else."""
     return [
+        *(
+            RouteMap(methods=["GET"], pattern=pattern, mcp_type=MCPType.EXCLUDE)
+            for pattern in SIDE_EFFECT_GET_PATTERNS
+        ),
+        *(
+            RouteMap(methods=[method], pattern=pattern, mcp_type=MCPType.TOOL)
+            for method, pattern in ALLOWED_WRITES
+        ),
         RouteMap(methods=["GET"], mcp_type=MCPType.TOOL),
         RouteMap(mcp_type=MCPType.EXCLUDE),
     ]

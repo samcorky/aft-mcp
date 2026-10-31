@@ -1,9 +1,16 @@
 # aft-mcp
 
 An [MCP](https://modelcontextprotocol.io) server for the AFT API. It fetches AFT's Swagger 2.0 spec, converts it to
-OpenAPI 3, and exposes every `GET` endpoint as an MCP tool using [FastMCP](https://gofastmcp.com).
+OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://gofastmcp.com).
 
-Only read-only (`GET`) endpoints are exposed; everything else is excluded.
+## What is exposed
+
+- **Reads:** every `GET` endpoint, except any `GET` that changes state (`SIDE_EFFECT_GET_PATTERNS` in `server.py`).
+- **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `server.py`): edit or move a
+  card, set done status and assignees, archive/unarchive cards, add comments and checklist items, update checklist
+  items, and rename or reorder columns.
+- **Never exposed:** `DELETE` routes, creating boards, cards or columns, and board-level changes (rename, owner,
+  public link, import).
 
 ## Requirements
 
@@ -41,13 +48,69 @@ required setting stops the server at startup with a clear message.
 uv run python server.py     # stdio transport
 ```
 
-To use it from Claude Code:
+## Connecting to Claude and agents
+
+The server speaks MCP over stdio, so any MCP client launches it as a subprocess. Credentials come from the `.env`
+next to `server.py`, so the client config needs no secrets and the working directory doesn't matter.
+
+Use the full path to your checkout in place of `/path/to/aft-mcp` in the examples below.
+
+### Claude Code
 
 ```bash
 claude mcp add aft -- uv run --directory /path/to/aft-mcp python server.py
 ```
 
-Other MCP clients need the same command in their server config.
+Add `--scope user` to make it available in every project. Check it with `claude mcp list` or `/mcp` inside a session.
+
+### Claude Desktop
+
+Add this to `claude_desktop_config.json` (Settings, then Developer, then Edit Config) and restart the app:
+
+```json
+{
+  "mcpServers": {
+    "aft": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/aft-mcp", "python", "server.py"]
+    }
+  }
+}
+```
+
+### Claude Agent SDK
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, query
+
+options = ClaudeAgentOptions(
+    mcp_servers={
+        "aft": {
+            "command": "uv",
+            "args": ["run", "--directory", "/path/to/aft-mcp", "python", "server.py"],
+        }
+    },
+    allowed_tools=["mcp__aft__*"],  # or list specific tools
+)
+
+async for message in query(prompt="What is on my AFT board?", options=options):
+    print(message)
+```
+
+### Other MCP clients
+
+Point the client at the same command: `uv run --directory /path/to/aft-mcp python server.py` over stdio.
+
+### Tool names and permissions
+
+Clients prefix tool names with the server name, so `get_boards` appears as `mcp__aft__get_boards`. Use that form in
+permission rules. To keep an agent read-only, allow only the `get_*` tools:
+
+```json
+{ "permissions": { "allow": ["mcp__aft__get_*"] } }
+```
+
+The write tools are `patch_*`, `post_*` and `put_*`.
 
 ## How it works
 

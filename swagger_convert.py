@@ -32,6 +32,8 @@ def convert(spec: dict) -> dict:
         },
     }
 
+    _assign_operation_ids(result["paths"])
+
     components: dict = {}
     if spec.get("definitions"):
         components["schemas"] = spec["definitions"]
@@ -46,6 +48,42 @@ def convert(spec: dict) -> dict:
             result[key] = spec[key]
 
     return _rewrite_refs(result)
+
+
+def _assign_operation_ids(paths: dict) -> None:
+    """Give every operation lacking an operationId a short one, e.g. get_boards_cards.
+
+    Literal path segments form the name and {params} are dropped. A path ending in a
+    {param} (a single item) gets '_by_<param>' appended, as does any other name that
+    would collide; a numeric suffix is the last resort.
+    """
+    taken = {op["operationId"] for item in paths.values() for m, op in item.items() if m in HTTP_METHODS and "operationId" in op}
+    for path, item in paths.items():
+        words = [s for s in path.strip("/").split("/") if s]
+        if words and words[0] == "api":
+            words = words[1:]
+        literals = [_slug(w) for w in words if not w.startswith("{")]
+        params = [_slug(w.strip("{}")) for w in words if w.startswith("{")]
+        trailing: list[str] = []
+        for w in reversed(words):
+            if not w.startswith("{"):
+                break
+            trailing.insert(0, _slug(w.strip("{}")))
+        for method, op in item.items():
+            if method not in HTTP_METHODS or "operationId" in op:
+                continue
+            name = "_".join([method, *literals])
+            if params and (words[-1].startswith("{") or name in taken):
+                name = f"{name}_by_{'_and_'.join(trailing or params[-1:])}"
+            base, n = name, 2
+            while name in taken:
+                name, n = f"{base}_{n}", n + 1
+            taken.add(name)
+            op["operationId"] = name
+
+
+def _slug(text: str) -> str:
+    return "".join(c if c.isalnum() else "_" for c in text).strip("_")
 
 
 def _servers(spec: dict) -> list[dict]:
