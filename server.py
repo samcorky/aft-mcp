@@ -49,12 +49,19 @@ def load_spec() -> JSON:
     return convert(spec)
 
 
-def build_client() -> httpx2.AsyncClient:
-    """Create the HTTP client used to call the AFT API."""
+def build_client(
+    transport: httpx2.AsyncBaseTransport | None = None,
+) -> httpx2.AsyncClient:
+    """Create the HTTP client used to call the AFT API.
+
+    Args:
+        transport: Replaces the network transport; the tests pass a mock here.
+    """
     return httpx2.AsyncClient(
         base_url=require_env("AFT_BASE_URL"),
         timeout=float(require_env("AFT_TIMEOUT")),
         auth=(require_env("AFT_USERNAME"), require_env("AFT_PASSWORD")),
+        transport=transport,
     )
 
 

@@ -27,6 +27,21 @@ def _op(**extra: Any) -> dict[str, Any]:
 CARD_ID = {"name": "card_id", "in": "path", "required": True, "type": "integer"}
 BOARD_ID = {"name": "board_id", "in": "path", "required": True, "type": "integer"}
 COLUMN_ID = {"name": "column_id", "in": "path", "required": True, "type": "integer"}
+CARD_UPDATE = {
+    "name": "body",
+    "in": "body",
+    "required": True,
+    "schema": {
+        "type": "object",
+        "properties": {"title": {"type": "string"}, "done": {"type": "boolean"}},
+    },
+}
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    """Run the async tests (marked ``anyio``) on asyncio only."""
+    return "asyncio"
 
 
 @pytest.fixture
@@ -67,7 +82,7 @@ def aft_like_spec() -> dict[str, Any]:
             "/api/cards/{card_id}": {
                 "parameters": [CARD_ID],
                 "get": _op(),
-                "patch": _op(),
+                "patch": _op(parameters=[CARD_UPDATE]),
                 "delete": _op(),
             },
             "/api/cards/{card_id}/comments": {

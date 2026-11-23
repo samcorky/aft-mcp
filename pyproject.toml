@@ -27,7 +27,7 @@ format-check = { cmd = "ruff format --check .", help = "Check formatting (as CI 
 lint = { cmd = "ruff check --no-fix .", help = "Lint without changing files" }
 types = { cmd = "mypy", help = "Type-check with mypy" }
 test = { cmd = "pytest", help = "Run the test suite with coverage" }
-test-fast = { cmd = "pytest --no-cov -q", help = "Run the tests without coverage (used on pre-push)" }
+test-fast = { cmd = "pytest --no-cov -q -m \"not e2e\"", help = "Run the tests without coverage or e2e (used on pre-push)" }
 check = { sequence = ["format-check", "lint", "types", "test"], help = "Run every CI check (ruff, mypy, pytest)" }
 fmt = { cmd = "ruff format .", help = "Format code" }
 lint-fix = { cmd = "ruff check --fix .", help = "Apply auto-fixable lint fixes" }
@@ -36,6 +36,9 @@ fix = { sequence = ["fmt", "lint-fix"], help = "Apply formatting and auto-fixabl
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "e2e: launches the server as a subprocess over stdio (slower; skipped on pre-push)",
+]
 addopts = [
     "--tb=short",
     "--strict-markers",
