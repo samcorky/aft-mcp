@@ -107,6 +107,11 @@ async for message in query(prompt="What is on my AFT board?", options=options):
     print(message)
 ```
 
+## On a server, over SSH
+
+To keep the credential off workstations, run aft-mcp on a server and point the client at `ssh -T aft-broker prod`; see
+[Running on a server](remote.md).
+
 ## Other MCP clients
 
 Point the client at the same command over stdio: the `uvx` one above, or `uv run --directory /path/to/aft-mcp aft-mcp`
