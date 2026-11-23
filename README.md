@@ -222,8 +222,10 @@ options = ClaudeAgentOptions(
         "aft": {
             "command": "uvx",
             "args": [
-                "--directory", "/path/to/aft-config",
-                "--from", "git+https://github.com/samcorky/aft-mcp@<ref>",
+                "--directory",
+                "/path/to/aft-config",
+                "--from",
+                "git+https://github.com/samcorky/aft-mcp@<ref>",
                 "aft-mcp",
             ],
         }
