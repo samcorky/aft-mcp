@@ -1,12 +1,20 @@
+<div align="center">
+
 # aft-mcp
 
-[![CI](https://github.com/samcorky/aft-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/samcorky/aft-mcp/actions/workflows/ci.yml)
-[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-3776ab?logo=python&logoColor=white)](pyproject.toml)
-[![License: MIT](https://img.shields.io/github/license/samcorky/aft-mcp)](LICENSE)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Checked with mypy](https://img.shields.io/badge/mypy-strict-2a6db2)](https://mypy-lang.org/)
-[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fe5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
-[![Renovate](https://img.shields.io/badge/renovate-enabled-1a1f6c?logo=renovate&logoColor=white)](https://github.com/renovatebot/renovate)
+**An MCP server that gives AI agents safe, scoped access to your AFT boards.**
+
+[![CI][ci-badge]][ci-link]
+[![Python 3.14+][python-badge]][python-link]
+[![License: MIT][license-badge]][license-link]
+[![Ruff][ruff-badge]][ruff-link]
+[![mypy: strict][mypy-badge]][mypy-link]
+[![Conventional Commits][cc-badge]][cc-link]
+[![Renovate][renovate-badge]][renovate-link]
+
+</div>
+
+---
 
 An [MCP](https://modelcontextprotocol.io) server for the API of [AFT](https://github.com/sjefferson99/aft) (Aim,
 Focus, Track), a self-hosted application for tasks. It fetches AFT's Swagger 2.0 spec, converts it to
@@ -172,3 +180,18 @@ and report security issues privately as described in [SECURITY.md](SECURITY.md).
 ## Licence
 
 [MIT](LICENSE)
+
+[ci-badge]: https://github.com/samcorky/aft-mcp/actions/workflows/ci.yml/badge.svg?branch=main
+[ci-link]: https://github.com/samcorky/aft-mcp/actions/workflows/ci.yml
+[python-badge]: https://img.shields.io/badge/python-3.14%2B-3776ab?logo=python&logoColor=white
+[python-link]: pyproject.toml
+[license-badge]: https://img.shields.io/github/license/samcorky/aft-mcp
+[license-link]: LICENSE
+[ruff-badge]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json
+[ruff-link]: https://github.com/astral-sh/ruff
+[mypy-badge]: https://img.shields.io/badge/mypy-strict-2a6db2
+[mypy-link]: https://mypy-lang.org/
+[cc-badge]: https://img.shields.io/badge/Conventional%20Commits-1.0.0-fe5196?logo=conventionalcommits&logoColor=white
+[cc-link]: https://www.conventionalcommits.org/
+[renovate-badge]: https://img.shields.io/badge/renovate-enabled-1a1f6c?logo=renovate&logoColor=white
+[renovate-link]: https://github.com/renovatebot/renovate
