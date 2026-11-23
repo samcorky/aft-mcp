@@ -16,7 +16,8 @@
   "enabledManagers": [
     "pep621",
     "github-actions",
-    "pre-commit"
+    "pre-commit",
+    "dockerfile"
   ],
   "prHourlyLimit": 5,
   "prConcurrentLimit": 5,
@@ -64,6 +65,68 @@
       ],
       "groupName": "pre-commit hooks",
       "semanticCommitType": "ci",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "description": "Docker base images (Dockerfile): digest and patch bumps grouped and automerged, as build changes. Images are pinned by tag and digest.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "groupName": "Docker images",
+      "semanticCommitType": "build",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "description": "A new Python (3.14 to 3.15) in the Dockerfile is a manual change: requires-python and CI's Python move with it.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "groupName": "Python interpreter",
+      "automerge": false,
+      "semanticCommitType": "build",
+      "semanticCommitScope": "deps",
+      "labels": [
+        "dependencies",
+        "python-version"
+      ]
+    },
+    {
+      "description": "uv in the Dockerfile: any update, grouped with the other images and automerged once CI's image build and smoke test pass.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/astral-sh/uv"
+      ],
+      "groupName": "Docker images",
+      "semanticCommitType": "build",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "description": "hatchling, hatch-vcs and calver-scm sit in build-system.requires and in the release group; move them together (as in menagerist).",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchPackageNames": [
+        "hatchling",
+        "hatch-vcs",
+        "calver-scm"
+      ],
+      "groupName": "Python build system",
+      "semanticCommitType": "build",
       "semanticCommitScope": "deps"
     }
   ]
