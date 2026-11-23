@@ -9,7 +9,7 @@ Every setting is an environment variable. The server reads the process environme
 | `AFT_MCP_BASE_URL` | yes | URL | none | `http://` or `https://` | Base URL the generated tools call. Example: `https://aft.example.com`. |
 | `AFT_MCP_SPEC_URL` | no | URL | unset | `http://` or `https://` | URL of AFT's Swagger 2.0 or OpenAPI spec, which the tools are built from. Unset, it is `api/apispec.json` under `AFT_MCP_BASE_URL`. Example: `https://aft.example.com/api/apispec.json`. |
 | `AFT_MCP_SPEC_FILE` | no | path | unset | any | Load the spec from this local file instead of `AFT_MCP_SPEC_URL`. |
-| `AFT_MCP_TIMEOUT` | yes | number | none | more than 0 | Request timeout in seconds. Example: `30`. |
+| `AFT_MCP_TIMEOUT` | no | number | `30` | more than 0 | Request timeout in seconds, for the spec and every tool call. |
 | `AFT_MCP_TOKEN` | no | secret | unset | not empty | AFT API token, sent as `Authorization: Bearer` (recommended). Create it on an API-only user; set this, or both `AFT_MCP_USERNAME` and `AFT_MCP_PASSWORD`. It is never shown in reprs, logs or errors. |
 | `AFT_MCP_USERNAME` | no | text | unset | not empty | AFT account email or username, sent as HTTP basic auth, for AFT versions without API tokens. Needs `AFT_MCP_PASSWORD`; not with `AFT_MCP_TOKEN`. Use a dedicated user for the agent, not your own account. Example: `agent@example.com`. |
 | `AFT_MCP_PASSWORD` | no | secret | unset | not empty | Password of the `AFT_MCP_USERNAME` account. It is never shown in reprs, logs or errors. |

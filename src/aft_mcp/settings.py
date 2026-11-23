@@ -1,8 +1,8 @@
 """Settings for the AFT MCP server, loaded and validated once at startup.
 
 Values come from the process environment first, then from ``.env`` in the working
-directory. There are no defaults in the code for required settings: a missing or
-invalid setting stops the server, and the error names every bad setting at once.
+directory. Only the base URL and a way to sign in are required; a missing or invalid
+setting stops the server, and the error names every bad setting at once.
 """
 
 from pathlib import Path
@@ -25,6 +25,8 @@ ENV_PREFIX = "AFT_MCP_"
 ENV_FILE = Path(".env")
 # Where AFT serves its own spec, relative to the base URL.
 DEFAULT_SPEC_PATH = "api/apispec.json"
+# Seconds to wait for AFT before a request fails.
+DEFAULT_TIMEOUT = 30
 
 _TOKEN, _USER, _PASSWORD = (
     f"{ENV_PREFIX}{n}" for n in ("TOKEN", "USERNAME", "PASSWORD")
@@ -73,10 +75,10 @@ class Settings(BaseSettings):
         description="Load the spec from this local file instead of `AFT_MCP_SPEC_URL`.",
     )
     timeout: float = Field(
+        default=DEFAULT_TIMEOUT,
         gt=0,
         allow_inf_nan=False,
-        description="Request timeout in seconds.",
-        examples=[30],
+        description="Request timeout in seconds, for the spec and every tool call.",
     )
     # Sign in with an API token (sent as a Bearer token), or with a username and
     # password (sent as HTTP Basic auth). Exactly one of the two.

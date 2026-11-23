@@ -79,10 +79,15 @@ def test_a_missing_env_file_leaves_the_environment(aft_env: dict[str, str]) -> N
 
 @pytest.mark.usefixtures("no_env")
 def test_reports_every_missing_setting_at_once() -> None:
-    assert problems() == [
-        "AFT_MCP_BASE_URL: Field required",
-        "AFT_MCP_TIMEOUT: Field required",
-    ]
+    # The sign-in check runs once the fields themselves are valid.
+    assert problems() == ["AFT_MCP_BASE_URL: Field required"]
+
+
+def test_the_timeout_defaults_to_30_seconds(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
+) -> None:
+    monkeypatch.delenv("AFT_MCP_TIMEOUT")
+    assert load_settings(env_file=None).timeout == 30
 
 
 @pytest.mark.parametrize(
