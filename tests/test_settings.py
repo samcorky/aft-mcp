@@ -474,3 +474,18 @@ def test_the_environment_wins_over_a_secret_file(
     loaded = load_settings(env_file=None, secrets_dir=tmp_path)
     assert loaded.password is not None
     assert loaded.password.get_secret_value() == aft_env["AFT_MCP_PASSWORD"]
+
+
+def test_the_instance_is_unset_by_default(aft_env: dict[str, str]) -> None:
+    assert load_settings(env_file=None).instance is None
+
+
+@pytest.mark.parametrize("value", ["Prod", "prod env", "-prod", "x" * 33, "prod\n"])
+def test_the_instance_is_a_short_lower_case_name(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], value: str
+) -> None:
+    monkeypatch.setenv("AFT_MCP_INSTANCE", "prod-2")
+    assert load_settings(env_file=None).instance == "prod-2"
+    monkeypatch.setenv("AFT_MCP_INSTANCE", value)
+    (problem,) = problems()
+    assert problem.startswith("AFT_MCP_INSTANCE: ")

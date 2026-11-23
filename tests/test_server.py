@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
+import structlog
 from fastmcp import FastMCP
 from pydantic import SecretStr
 
@@ -419,3 +420,34 @@ def test_python_m_aft_mcp_runs_main(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_installs_the_aft_mcp_command() -> None:
     (script,) = entry_points(group="console_scripts", name="aft-mcp")
     assert script.value == "aft_mcp.server:main"
+
+
+def test_without_an_instance_the_server_is_plain_aft(settings: Settings) -> None:
+    assert server.server_identity(settings) == ("AFT", None)
+
+
+def test_the_instance_names_the_server_and_its_instructions(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    aft_like_spec: dict[str, Any],
+) -> None:
+    stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
+    mcp = server.create_server(settings.model_copy(update={"instance": "prod"}))
+    assert mcp.name == "AFT (prod)"
+    assert mcp.instructions is not None
+    assert "AFT instance named 'prod'" in mcp.instructions
+
+
+def test_main_adds_the_instance_to_every_log_line(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, log_records: LogRecords
+) -> None:
+    class LoggingServer:
+        def run(self) -> None:
+            structlog.get_logger("aft_mcp.test").info("serving")
+
+    labelled = settings.model_copy(update={"instance": "test"})
+    monkeypatch.setattr(server, "load_settings", lambda *_: labelled)
+    monkeypatch.setattr(server, "configure_logging", lambda _format: None)
+    monkeypatch.setattr(server, "create_server", lambda _s: LoggingServer())
+    server.main()
+    assert log_records()[-1]["instance"] == "test"

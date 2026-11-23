@@ -128,6 +128,16 @@ class Settings(BaseSettings):
             + "logs or errors."
         ),
     )
+    instance: str | None = Field(
+        default=None,
+        pattern=r"^[a-z0-9][a-z0-9-]{0,31}$",
+        description=(
+            "A short name for this AFT instance, such as `prod` or `test`. It is "
+            + "added to the server's name and instructions, so the agent knows "
+            + "which instance it is changing, and to every log line."
+        ),
+        examples=["prod"],
+    )
     allow_insecure: bool = Field(
         default=False,
         description=(

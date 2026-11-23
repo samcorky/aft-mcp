@@ -54,7 +54,8 @@ again when it meets a column or checklist item it doesn't know) and reads a card
 The server logs every tool call to stderr, allowed or refused, with [structlog](https://www.structlog.org/). Each HTTP
 request to AFT gets an `aft_response` line with its method, path and status, and each call ends with a `tool_result`
 line with the outcome (`ok` or `error`, plus the exception type) and its duration. Every line from one call carries the
-same `call` id, the `tool` and the id arguments it was called with (`*_id`, `*_ids`).
+same `call` id, the `tool` and the id arguments it was called with (`*_id`, `*_ids`). With `AFT_MCP_INSTANCE` set,
+every line also carries `instance`.
 
 ```text
 timestamp=2026-11-23T12:00:01.204Z level=info logger=aft_mcp.audit event=aft_response call=0c3e3ff3 tool=patch_cards_done method=PATCH path=/api/cards/42/done status=200 card_id=42

@@ -11,7 +11,8 @@ The server reads its settings from the environment, then from one `.env` file:
   (`$XDG_CONFIG_HOME/aft-mcp/.env` if you set it), `%APPDATA%\aft-mcp\.env` on Windows. Make the directory readable
   only by you, and start the file from [`.env.example`](../.env.example).
 - **`AFT_MCP_ENV_FILE`**, set in the client config's environment, names another file instead, for example one per
-  AFT instance (`prod.env`, `test.env`). It must exist.
+  AFT instance (`prod.env`, `test.env`). It must exist. Set `AFT_MCP_INSTANCE=prod` (or `test`) in each, so the server's
+  name, its instructions to the agent and every log line say which instance it is.
 - **The working directory is never read**, so the server behaves the same whichever project the client starts it in.
   If an old `.env` is still there, the server says on stderr that it ignored it.
 

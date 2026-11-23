@@ -179,12 +179,26 @@ def build_route_maps(*, read_only: bool) -> list[RouteMap]:
     ]
 
 
+def server_identity(settings: Settings) -> tuple[str, str | None]:
+    """The server's name and instructions, naming the instance when one is set."""
+    if settings.instance is None:
+        return "AFT", None
+    instructions = (
+        f"These tools are connected to the AFT instance named {settings.instance!r}. "
+        + "Every change they make happens there, so check that this is the "
+        + "instance you mean before changing anything."
+    )
+    return f"AFT ({settings.instance})", instructions
+
+
 def create_server(settings: Settings) -> FastMCP:
     """Assemble the MCP server from the OpenAPI spec, with the audit log."""
+    name, instructions = server_identity(settings)
     mcp = FastMCP.from_openapi(
         openapi_spec=load_spec(settings),
         client=build_client(settings),
-        name="AFT",
+        name=name,
+        instructions=instructions,
         version=__version__,
         route_maps=build_route_maps(read_only=settings.read_only),
     )
@@ -216,6 +230,9 @@ def main() -> None:
         sys.exit(str(error))  # exits with status 1, the message on stderr
     warn_about_working_directory_env(env_file)
     configure_logging(settings.log_format)
+    if settings.instance is not None:
+        # Adds the field to every log line for the life of the process.
+        structlog.contextvars.bind_contextvars(instance=settings.instance)
     for name in settings.insecure_urls:
         log.warning("insecure_url", setting=name, note="credentials sent unencrypted")
     try:
