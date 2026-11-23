@@ -319,7 +319,7 @@ def test_main_loads_the_settings_then_runs(
         def run(self) -> None:
             calls.append("run")
 
-    monkeypatch.setattr(server, "load_settings", lambda _env_file: settings)
+    monkeypatch.setattr(server, "load_settings", lambda *_: settings)
     monkeypatch.setattr(server, "create_server", FakeServer)
     server.main()
     assert calls == [settings, "run"]
@@ -335,7 +335,7 @@ def test_main_warns_about_each_http_url(
             "allow_insecure": True,
         }
     )
-    monkeypatch.setattr(server, "load_settings", lambda _env_file: insecure)
+    monkeypatch.setattr(server, "load_settings", lambda *_: insecure)
     monkeypatch.setattr(server, "configure_logging", lambda _format: None)
     monkeypatch.setattr(
         server, "create_server", lambda _s: type("S", (), {"run": lambda _self: None})()
@@ -352,7 +352,7 @@ def test_main_exits_when_building_the_server_finds_a_settings_problem(
     def refuse(_settings: Settings) -> FastMCP:
         raise SettingsError(["the spec at x redirected to http: y"])
 
-    monkeypatch.setattr(server, "load_settings", lambda _env_file: settings)
+    monkeypatch.setattr(server, "load_settings", lambda *_: settings)
     monkeypatch.setattr(server, "configure_logging", lambda _format: None)
     monkeypatch.setattr(server, "create_server", refuse)
     with pytest.raises(SystemExit) as exited:
@@ -363,7 +363,7 @@ def test_main_exits_when_building_the_server_finds_a_settings_problem(
 def test_main_exits_listing_every_settings_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fail(_env_file: Path | None) -> Settings:
+    def fail(_env_file: Path | None, _secrets: Path | None) -> Settings:
         raise SettingsError(["AFT_MCP_BASE_URL: missing", "AFT_MCP_TIMEOUT: missing"])
 
     monkeypatch.setattr(server, "load_settings", fail)

@@ -29,6 +29,7 @@ def aft_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Set every required AFT_MCP_* setting, and clear every other one."""
     for name in [name for name in os.environ if name.startswith("AFT_MCP_")]:
         monkeypatch.delenv(name)
+    monkeypatch.delenv("CREDENTIALS_DIRECTORY", raising=False)
     for name, value in ENV.items():
         monkeypatch.setenv(name, value)
     return ENV

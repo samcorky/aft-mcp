@@ -18,6 +18,7 @@ from aft_mcp.settings import (
     SettingsError,
     env_file_path,
     load_settings,
+    secrets_dir_path,
     url_origin,
     url_scheme,
 )
@@ -210,7 +211,7 @@ def main() -> None:
     """Load the settings, build the server and serve it over stdio."""
     try:
         env_file = env_file_path()
-        settings = load_settings(env_file)
+        settings = load_settings(env_file, secrets_dir_path())
     except SettingsError as error:
         sys.exit(str(error))  # exits with status 1, the message on stderr
     warn_about_working_directory_env(env_file)

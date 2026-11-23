@@ -9,6 +9,7 @@ from aft_mcp.settings import (
     default_env_file,
     env_file_path,
     load_settings,
+    secrets_dir_path,
 )
 
 ALL_SETTINGS = [
@@ -414,3 +415,62 @@ def test_a_spec_file_makes_the_spec_url_unchecked(
     monkeypatch.setenv("AFT_MCP_SPEC_URL", "http://elsewhere.test/spec.json")
     monkeypatch.setenv("AFT_MCP_SPEC_FILE", "spec.json")
     assert load_settings(env_file=None).spec_file == Path("spec.json")
+
+
+# --- secrets from files -------------------------------------------------------------
+
+
+def test_no_secrets_dir_unless_named(aft_env: dict[str, str]) -> None:
+    assert secrets_dir_path() is None
+
+
+@pytest.mark.parametrize("variable", ["AFT_MCP_SECRETS_DIR", "CREDENTIALS_DIRECTORY"])
+def test_the_secrets_dir_comes_from_either_variable(
+    monkeypatch: pytest.MonkeyPatch,
+    aft_env: dict[str, str],
+    tmp_path: Path,
+    variable: str,
+) -> None:
+    monkeypatch.setenv(variable, str(tmp_path))
+    assert secrets_dir_path() == tmp_path
+
+
+def test_aft_mcp_secrets_dir_wins_over_systemds(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], tmp_path: Path
+) -> None:
+    (tmp_path / "ours").mkdir()
+    monkeypatch.setenv("CREDENTIALS_DIRECTORY", str(tmp_path))
+    monkeypatch.setenv("AFT_MCP_SECRETS_DIR", str(tmp_path / "ours"))
+    assert secrets_dir_path() == tmp_path / "ours"
+
+
+def test_a_named_secrets_dir_must_exist(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AFT_MCP_SECRETS_DIR", str(tmp_path / "missing"))
+    with pytest.raises(SettingsError) as raised:
+        secrets_dir_path()
+    assert raised.value.problems == [
+        f"AFT_MCP_SECRETS_DIR: no such directory: {tmp_path / 'missing'}"
+    ]
+
+
+def test_a_secret_file_provides_the_token(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], tmp_path: Path
+) -> None:
+    monkeypatch.delenv("AFT_MCP_USERNAME")
+    monkeypatch.delenv("AFT_MCP_PASSWORD")
+    (tmp_path / "AFT_MCP_TOKEN").write_text("from-a-file\n", encoding="utf-8")
+    loaded = load_settings(env_file=None, secrets_dir=tmp_path)
+    assert loaded.token is not None
+    assert loaded.token.get_secret_value() == "from-a-file"
+    assert "from-a-file" not in repr(loaded)
+
+
+def test_the_environment_wins_over_a_secret_file(
+    aft_env: dict[str, str], tmp_path: Path
+) -> None:
+    (tmp_path / "AFT_MCP_PASSWORD").write_text("from-a-file", encoding="utf-8")
+    loaded = load_settings(env_file=None, secrets_dir=tmp_path)
+    assert loaded.password is not None
+    assert loaded.password.get_secret_value() == aft_env["AFT_MCP_PASSWORD"]

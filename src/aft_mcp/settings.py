@@ -3,7 +3,8 @@
 Values come from the process environment first, then from a ``.env`` file: the one
 named by ``AFT_MCP_ENV_FILE``, or else ``aft-mcp/.env`` in the user's config directory
 (see ``env_file_path``). The working directory is never read, so starting the server
-inside someone else's project can't change where it connects. Only the base URL and a
+inside someone else's project can't change where it connects. Secrets can also come
+from files in a directory (see ``secrets_dir_path``). Only the base URL and a
 way to sign in are required; a missing or invalid setting stops the server, and the
 error names every bad setting at once.
 """
@@ -27,6 +28,10 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 ENV_PREFIX = "AFT_MCP_"
 # Names the .env file to read. It is not a setting, so it comes from the environment.
 ENV_FILE_VARIABLE = f"{ENV_PREFIX}ENV_FILE"
+# Names a directory of secret files, one per setting; also from the environment only.
+SECRETS_DIR_VARIABLE = f"{ENV_PREFIX}SECRETS_DIR"
+# Set by systemd for a unit with LoadCredential=, as a fallback secrets directory.
+SYSTEMD_CREDENTIALS_VARIABLE = "CREDENTIALS_DIRECTORY"
 # The directory under the user's config directory that holds the default .env.
 CONFIG_DIR_NAME = "aft-mcp"
 # Where AFT serves its own spec, relative to the base URL.
@@ -277,7 +282,28 @@ def env_file_path() -> Path:
     return path
 
 
-def load_settings(env_file: Path | None) -> Settings:
+def secrets_dir_path() -> Path | None:
+    """The directory of secret files: ``AFT_MCP_SECRETS_DIR``, else systemd's.
+
+    In it, a file named after a variable (``AFT_MCP_TOKEN``) holds that setting's
+    value, with surrounding whitespace removed. This suits Docker secrets
+    (``/run/secrets``) and systemd credentials (``LoadCredential=``), so a secret
+    needn't be in ``.env`` or the process environment.
+
+    Raises:
+        SettingsError: The named directory doesn't exist.
+    """
+    for variable in (SECRETS_DIR_VARIABLE, SYSTEMD_CREDENTIALS_VARIABLE):
+        named = os.environ.get(variable)
+        if named:
+            path = Path(named).expanduser()
+            if not path.is_dir():
+                raise SettingsError([f"{variable}: no such directory: {path}"])
+            return path
+    return None
+
+
+def load_settings(env_file: Path | None, secrets_dir: Path | None = None) -> Settings:
     """Read and validate every setting.
 
     Args:
@@ -286,11 +312,13 @@ def load_settings(env_file: Path | None) -> Settings:
             tests do so that a developer's ``.env`` never applies. A missing file is
             fine: the settings then come from the environment alone, as when an MCP
             client passes them in its own configuration.
+        secrets_dir: A directory of secret files (usually ``secrets_dir_path()``),
+            read last: the environment and ``.env`` win over it.
 
     Raises:
         SettingsError: Naming every missing or invalid setting.
     """
     try:
-        return Settings(_env_file=env_file)
+        return Settings(_env_file=env_file, _secrets_dir=secrets_dir)
     except ValidationError as error:
         raise SettingsError(_describe(error)) from None

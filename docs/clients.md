@@ -18,6 +18,16 @@ The server reads its settings from the environment, then from one `.env` file:
 Without a `.env`, pass every setting as an environment variable in the client config instead. That puts the token in
 the client config, so prefer the file.
 
+### Secrets in files
+
+On a server, the token or password can come from a file instead of `.env` or the environment. Point
+`AFT_MCP_SECRETS_DIR` at a directory where each file is named after a variable and holds its value. The environment and
+`.env` still win over it, and the directory must exist.
+
+- **Docker:** mount a secret named `AFT_MCP_TOKEN` and set `AFT_MCP_SECRETS_DIR=/run/secrets`.
+- **systemd:** `LoadCredential=AFT_MCP_TOKEN:/etc/aft-mcp/token` in the unit. systemd sets `CREDENTIALS_DIRECTORY`,
+  which aft-mcp reads when `AFT_MCP_SECRETS_DIR` isn't set.
+
 ## With uvx (no checkout)
 
 [`uvx`](https://docs.astral.sh/uv/guides/tools/) (part of uv) installs aft-mcp into a cached, isolated environment and
