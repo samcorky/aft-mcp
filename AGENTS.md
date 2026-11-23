@@ -24,11 +24,13 @@ the work yourself in the main session.
 - `uv run poe check` must pass before you call work done: ruff, strict mypy, and pytest
   with coverage at 100%.
 - Never widen what the server exposes without being asked. No `DELETE` routes and no
-  board-level writes, ever. A change to `ALLOWED_WRITES` or `SIDE_EFFECT_GET_PATTERNS` updates the
-  reviewed snapshots and tool list in `tests/test_server.py` and the README in the
-  same change; never edit a snapshot just to make a test pass.
+  board-level writes, ever. A change to `ALLOWED_WRITES` or `SIDE_EFFECT_GET_PATTERNS`
+  updates the reviewed snapshots and tool list in `tests/test_server.py` and the README
+  in the same change; never edit a snapshot just to make a test pass.
 - Tests must not use the network or read `.env`. Stub HTTP with `httpx2.MockTransport`
-  (see `stub_http` in `tests/test_server.py`) and settings with the `aft_env` fixture.
+  (see `stub_http` in `tests/test_server.py`, or the `client` fixture in
+  `tests/test_mcp.py` for whole MCP tool calls) and settings with the `aft_env` fixture.
+  A test that starts a subprocess or a local server is marked `e2e`.
 - `server.py` must stay import-safe: build the server in `main()`, not at module level.
 - Never read, print or commit `.env`, and don't put real AFT URLs or credentials in
   tests, docs or commits.

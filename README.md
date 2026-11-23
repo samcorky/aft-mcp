@@ -1,5 +1,13 @@
 # aft-mcp
 
+[![CI](https://github.com/samcorky/aft-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/samcorky/aft-mcp/actions/workflows/ci.yml)
+[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-3776ab?logo=python&logoColor=white)](pyproject.toml)
+[![License: MIT](https://img.shields.io/github/license/samcorky/aft-mcp)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://img.shields.io/badge/mypy-strict-2a6db2)](https://mypy-lang.org/)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fe5196?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
+[![Renovate](https://img.shields.io/badge/renovate-enabled-1a1f6c?logo=renovate&logoColor=white)](https://github.com/renovatebot/renovate)
+
 An [MCP](https://modelcontextprotocol.io) server for the API of [AFT](https://github.com/sjefferson99/aft) (Aim,
 Focus, Track), a self-hosted application for tasks. It fetches AFT's Swagger 2.0 spec, converts it to
 OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://gofastmcp.com).

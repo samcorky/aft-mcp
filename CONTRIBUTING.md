@@ -37,11 +37,19 @@ replacement for `pre-commit` that reads the same `.pre-commit-config.yaml`:
 |--------------|--------------------------------------------------------------------------------------------------------------------------|
 | `pre-commit` | File hygiene, secret scanning (gitleaks), config validation, ruff and mypy. Refuses commits on `main`.                   |
 | `commit-msg` | Checks the message follows [Conventional Commits](https://www.conventionalcommits.org/).                               |
-| `pre-push`   | The tests (without coverage), and refuses a push that would update `main` on the remote.                                 |
+| `pre-push`   | The tests (without coverage or `e2e`), and refuses a push that would update `main` on the remote.                        |
 
 The tests never touch the network or your `.env`, so you don't need an AFT instance to
-run them. To try the server against a real AFT, copy `.env.example` to `.env` and fill
-it in (see the README).
+run them. There are three layers:
+
+| File                            | Tests                                                                                       |
+|---------------------------------|---------------------------------------------------------------------------------------------|
+| `tests/test_swagger_convert.py` | The Swagger 2.0 to OpenAPI 3 converter                                                      |
+| `tests/test_server.py`          | Configuration, spec loading, and which endpoints become tools (with the reviewed snapshots) |
+| `tests/test_mcp.py`             | A real MCP client: handshake, tool calls and the HTTP each one sends to a stubbed AFT, plus an `e2e` test that runs `python server.py` over stdio against a local fake AFT |
+
+To try the server against a real AFT, copy `.env.example` to `.env` and fill it in (see
+the README).
 
 ## Common tasks
 
@@ -52,7 +60,7 @@ Run `uv run poe` to list every task.
 | `uv run poe check`       | Everything CI checks: format, lint, types and tests          |
 | `uv run poe fix`         | Format and apply the automatic lint fixes                    |
 | `uv run poe test`        | The tests, with coverage (fails below 100%)                  |
-| `uv run poe test-fast`   | The tests without coverage                                   |
+| `uv run poe test-fast`   | The tests without coverage, skipping `e2e`                   |
 | `uv run poe hooks`       | Every pre-commit hook on the whole repository                |
 
 ## Code style
@@ -94,6 +102,12 @@ of the project, so changes to it get extra care:
 - Say `Closes #123` in the description to link the issue.
 - Two checks must pass before merging: `CI passed` (lint, types and tests) and
   `Hooks: prek (autofix)` (every other hook).
+- Commits on `main` must be signed and show as **Verified** on GitHub. Set up
+  [commit signing](https://docs.github.com/en/authentication/managing-commit-signature-verification)
+  (an SSH key is simplest: `git config gpg.format ssh`, `git config user.signingkey
+  <path to .pub>`, `git config commit.gpgsign true`, and add the key to GitHub as a
+  signing key). Pull requests are merged with a squash or a merge commit, which GitHub
+  signs; rebase merging is turned off.
 - The [autofix.ci](https://autofix.ci) app runs the hooks on every pull request and may
   push a `style: apply hook fixes` commit, so pull before pushing again. It never edits
   files under `.github/workflows`.
