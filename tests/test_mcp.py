@@ -19,6 +19,7 @@ import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
+import aft_mcp
 from aft_mcp import server
 
 if TYPE_CHECKING:
@@ -84,6 +85,7 @@ async def test_handshake_reports_the_server_and_its_tools(
 ) -> None:
     assert client.server_info is not None
     assert client.server_info.name == "AFT"
+    assert client.server_info.version == aft_mcp.__version__
     assert client.server_capabilities is not None
     assert client.server_capabilities.tools is not None
 

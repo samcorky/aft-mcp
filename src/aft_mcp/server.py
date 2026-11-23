@@ -6,6 +6,7 @@ import httpx2
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
+from aft_mcp import __version__
 from aft_mcp.settings import Settings, SettingsError, env_file_path, load_settings
 from aft_mcp.swagger_convert import JSON, convert
 
@@ -109,6 +110,7 @@ def create_server(settings: Settings) -> FastMCP:
         openapi_spec=load_spec(settings),
         client=build_client(settings),
         name="AFT",
+        version=__version__,
         route_maps=build_route_maps(),
     )
 

@@ -63,6 +63,7 @@ Run `uv run poe` to list every task.
 | `uv run poe test`        | The tests, with coverage (fails below 100%)                  |
 | `uv run poe test-fast`   | The tests without coverage, skipping `e2e`                   |
 | `uv run poe hooks`       | Every pre-commit hook on the whole repository                |
+| `uv run poe build-check` | Build the wheel and sdist, and run the tests against each    |
 
 ## Code style
 
@@ -115,6 +116,21 @@ of the project, so changes to it get extra care:
   push a `style: apply hook fixes` commit, so pull before pushing again. It never edits
   files under `.github/workflows`.
 - Dependency, action and hook updates come from Renovate, weekly.
+
+## Versions and releases
+
+Versions follow [CalVer](https://calver.org/) as `YYYY.MM.PATCH`, worked out from git
+tags by [calver-scm](https://github.com/samcorky/calver-scm) through hatch-vcs; there is
+no version number to edit by hand.
+
+- A release is a signed tag on `main` named `v` plus the version, such as `v2026.11.0`.
+  `PATCH` counts releases within the month and starts again at `0` each month.
+- Between tags, builds get a development version such as `2026.11.1.dev3`, plus
+  `+dirty` when the working tree has uncommitted changes.
+- `aft_mcp.__version__` and the version the server reports to MCP clients come from the
+  installed package metadata.
+- Publish a release from the tag with GitHub's "Generate release notes", which groups
+  pull requests by label (see below).
 
 ## Labels
 
