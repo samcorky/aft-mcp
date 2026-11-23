@@ -7,6 +7,7 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
 from aft_mcp import __version__
+from aft_mcp.audit import AuditLog, configure_audit_log, record_status
 from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import Settings, SettingsError, env_file_path, load_settings
 from aft_mcp.swagger_convert import JSON, convert
@@ -60,6 +61,7 @@ def build_client(
         timeout=settings.timeout,
         auth=(settings.username, settings.password.get_secret_value()),
         transport=transport,
+        event_hooks={"response": [record_status]},
     )
 
 
@@ -115,14 +117,16 @@ def build_route_maps(*, read_only: bool) -> list[RouteMap]:
 
 
 def create_server(settings: Settings) -> FastMCP:
-    """Assemble the MCP server from the OpenAPI spec."""
-    return FastMCP.from_openapi(
+    """Assemble the MCP server from the OpenAPI spec, with the audit log."""
+    mcp = FastMCP.from_openapi(
         openapi_spec=load_spec(settings),
         client=build_client(settings),
         name="AFT",
         version=__version__,
         route_maps=build_route_maps(read_only=settings.read_only),
     )
+    mcp.add_middleware(AuditLog())
+    return mcp
 
 
 def main() -> None:
@@ -131,4 +135,5 @@ def main() -> None:
         settings = load_settings(env_file_path())
     except SettingsError as error:
         sys.exit(str(error))  # exits with status 1, the message on stderr
+    configure_audit_log()
     create_server(settings).run()

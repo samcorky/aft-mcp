@@ -114,6 +114,20 @@ again when it meets a column or checklist item it doesn't know) and reads a card
 uv run aft-mcp              # stdio transport; python -m aft_mcp does the same
 ```
 
+### Audit log
+
+The server writes one line to stderr for every tool call, allowed or refused: when it started (UTC), the tool, the
+ids it was called with, and the HTTP status AFT answered with.
+
+```text
+2026-11-23T12:00:01Z patch_cards_done card_id=42 -> 200
+2026-11-23T12:00:04Z get_boards_by_board_id board_id=99 -> 403
+2026-11-23T12:00:09Z delete_cards_by_card_id card_id=42 -> error, no request sent
+```
+
+Request and response bodies are never logged, so card text and credentials stay out of it. MCP clients keep stderr
+apart from the protocol stream; Claude Code and Claude Desktop write it to their MCP server logs.
+
 ## Connecting to Claude and agents
 
 The server speaks MCP over stdio, so any MCP client launches it as a subprocess. `uv run --directory` starts it in

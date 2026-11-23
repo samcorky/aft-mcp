@@ -8,6 +8,7 @@
           - "src/aft_mcp/server.py"
           - "src/aft_mcp/settings.py"
           - "src/aft_mcp/board_guard.py"
+          - "src/aft_mcp/audit.py"
 
 "area: converter":
   - changed-files:

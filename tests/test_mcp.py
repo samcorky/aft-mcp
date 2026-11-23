@@ -9,6 +9,7 @@ or Claude Desktop would, against a local HTTP server standing in for AFT.
 
 import base64
 import json
+import logging
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -219,6 +220,47 @@ async def test_aft_error_comes_back_as_a_tool_error(
 
     assert result.is_error
     assert "403" in result.content[0].text  # type: ignore[union-attr]
+
+
+# --- the audit log -----------------------------------------------------------------
+
+
+def audit_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The audit lines, without the leading timestamp."""
+    return [
+        record.getMessage().split(" ", 1)[1]
+        for record in caplog.records
+        if record.name == "aft_mcp.audit"
+    ]
+
+
+async def test_each_tool_call_is_logged_with_its_ids_and_status(
+    client: Client[Any], fake_aft: FakeAft, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="aft_mcp.audit")
+    await client.call_tool("get_boards", {})
+    await client.call_tool("patch_cards_by_card_id", {"card_id": 5, "title": "Secret"})
+    fake_aft.status = 403
+    await client.call_tool("get_boards", {}, raise_on_error=False)
+
+    assert audit_lines(caplog) == [
+        "get_boards -> 200",
+        "patch_cards_by_card_id card_id=5 -> 200",
+        "get_boards -> 403",
+    ]
+    assert "Secret" not in caplog.text  # bodies are never logged
+
+
+async def test_a_refused_tool_call_is_logged(
+    client: Client[Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="aft_mcp.audit")
+    await client.call_tool(
+        "delete_cards_by_card_id", {"card_id": 5}, raise_on_error=False
+    )
+    assert audit_lines(caplog) == [
+        "delete_cards_by_card_id card_id=5 -> error, no request sent"
+    ]
 
 
 # --- end to end over stdio --------------------------------------------------------
