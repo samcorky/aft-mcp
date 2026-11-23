@@ -2,7 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from aft_mcp.settings import ENV_FILE, Settings, SettingsError, load_settings
+import aft_mcp.settings as settings_module
+from aft_mcp.settings import (
+    Settings,
+    SettingsError,
+    default_env_file,
+    env_file_path,
+    load_settings,
+)
 
 ALL_SETTINGS = [
     "AFT_MCP_BASE_URL",
@@ -68,8 +75,71 @@ def test_the_environment_wins_over_the_env_file(
     assert load_settings(env_file=env_file).timeout == 5.0
 
 
-def test_the_env_file_is_dot_env_in_the_working_directory() -> None:
-    assert Path(".env") == ENV_FILE
+# --- where the .env file is ----------------------------------------------------------
+
+
+def test_the_default_env_file_is_in_xdg_config_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert default_env_file() == tmp_path / "aft-mcp" / ".env"
+
+
+@pytest.mark.parametrize("xdg", [None, "", "relative/dir"])
+def test_without_an_absolute_xdg_config_home_it_is_under_dot_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, xdg: str | None
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    if xdg is None:
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    else:
+        monkeypatch.setenv("XDG_CONFIG_HOME", xdg)
+    assert default_env_file() == tmp_path / ".config" / "aft-mcp" / ".env"
+
+
+@pytest.mark.parametrize("appdata", [True, False])
+def test_on_windows_it_is_under_appdata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, appdata: bool
+) -> None:
+    monkeypatch.setattr(settings_module, "_on_windows", lambda: True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    if appdata:
+        monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    else:
+        monkeypatch.delenv("APPDATA", raising=False)
+    expected = tmp_path / ("Roaming" if appdata else "AppData/Roaming") / "aft-mcp"
+    assert default_env_file() == expected / ".env"
+
+
+def test_env_file_path_is_the_default_unless_named(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
+) -> None:
+    assert env_file_path() == default_env_file()
+    monkeypatch.setenv("AFT_MCP_ENV_FILE", "")  # empty counts as unset
+    assert env_file_path() == default_env_file()
+
+
+def test_env_file_path_uses_a_named_file(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], tmp_path: Path
+) -> None:
+    named = tmp_path / "prod.env"
+    named.write_text("", encoding="utf-8")
+    monkeypatch.setenv("AFT_MCP_ENV_FILE", str(named))
+    assert env_file_path() == named
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AFT_MCP_ENV_FILE", "~/prod.env")
+    assert env_file_path() == named
+
+
+def test_a_named_env_file_must_exist(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AFT_MCP_ENV_FILE", str(tmp_path / "typo.env"))
+    with pytest.raises(SettingsError) as raised:
+        env_file_path()
+    assert raised.value.problems == [
+        f"AFT_MCP_ENV_FILE: no such file: {tmp_path / 'typo.env'}"
+    ]
 
 
 def test_a_missing_env_file_leaves_the_environment(aft_env: dict[str, str]) -> None:

@@ -2,6 +2,7 @@ import asyncio
 import json
 import runpy
 from importlib.metadata import entry_points
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx2
@@ -16,7 +17,6 @@ from aft_mcp.swagger_convert import convert
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
 
 def tool_names(spec: dict[str, Any], *, read_only: bool = False) -> set[str]:
@@ -291,6 +291,36 @@ def test_main_exits_listing_every_settings_problem(
         server.main()
     assert "AFT_MCP_BASE_URL: missing" in str(exited.value.code)
     assert "AFT_MCP_TIMEOUT: missing" in str(exited.value.code)
+
+
+def test_main_exits_when_the_named_env_file_is_missing(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AFT_MCP_ENV_FILE", str(tmp_path / "missing.env"))
+    with pytest.raises(SystemExit) as exited:
+        server.main()
+    assert "AFT_MCP_ENV_FILE: no such file" in str(exited.value.code)
+
+
+def test_a_dot_env_in_the_working_directory_gets_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config = tmp_path / "config.env"
+    server.warn_about_working_directory_env(config)  # no ./.env: nothing to say
+    assert capsys.readouterr().err == ""
+
+    Path(".env").write_text("AFT_MCP_BASE_URL=https://elsewhere.test\n", "utf-8")
+    server.warn_about_working_directory_env(config)
+    err = capsys.readouterr().err
+    assert "ignoring .env in the working directory" in err
+    assert str(config) in err
+    assert "elsewhere" not in err  # never reads it
+
+    server.warn_about_working_directory_env(Path(".env"))  # it is the named file
+    assert capsys.readouterr().err == ""
 
 
 def test_importing_the_module_has_no_side_effects() -> None:

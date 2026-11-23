@@ -31,7 +31,10 @@ _JSON_TYPES = {
 }
 _INTRO = (
     "Every setting is an environment variable. The server reads the process "
-    + "environment first, then `.env` in the working directory. A variable "
+    + "environment first, then a `.env` file: the one named by `AFT_MCP_ENV_FILE` "
+    + "(set in the environment), or else `aft-mcp/.env` in your config directory: "
+    + "`$XDG_CONFIG_HOME` or `~/.config` on Linux and macOS, `%APPDATA%` on "
+    + "Windows. The working directory is never read. A variable "
     + "already in the environment wins, and an empty value counts as "
     + f"unset. [`{ENV_EXAMPLE_PATH}`](../{ENV_EXAMPLE_PATH}) is a starting point "
     + "to copy. A missing or invalid setting stops the server, and the error lists "
@@ -152,7 +155,8 @@ def render_env_example(entries: list[SettingEntry]) -> str:
     """
     lines = [
         f"# aft-mcp settings. {_GENERATED}",
-        "# Copy to .env and fill in the settings that aren't commented out.",
+        "# Copy to ~/.config/aft-mcp/.env (or a file named by AFT_MCP_ENV_FILE)",
+        "# and fill in the settings that aren't commented out.",
         f"# Every variable is described in {SETTINGS_DOC_PATH}.",
     ]
     for entry in entries:

@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx2
@@ -10,17 +11,17 @@ from aft_mcp import __version__
 from aft_mcp.audit import AuditLog, configure_logging, log_response
 from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import (
-    ENV_FILE,
+    ENV_FILE_VARIABLE,
     NO_SIGN_IN,
     Settings,
     SettingsError,
+    env_file_path,
     load_settings,
 )
 from aft_mcp.swagger_convert import JSON, convert
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
     from fastmcp.utilities.openapi.models import HttpMethod
     from pydantic import SecretStr
@@ -166,11 +167,28 @@ def create_server(settings: Settings) -> FastMCP:
     return mcp
 
 
+def warn_about_working_directory_env(env_file: Path) -> None:
+    """Say on stderr that a ``.env`` in the working directory is not read.
+
+    Before settings moved to the config directory, the server read ``./.env``. This
+    points anyone upgrading at the new place instead of failing silently.
+    """
+    local = Path(".env")
+    if local.is_file() and local.resolve() != env_file.resolve():
+        print(
+            "aft-mcp: ignoring .env in the working directory; settings are read "
+            + f"from {env_file} (set {ENV_FILE_VARIABLE} to use another file)",
+            file=sys.stderr,
+        )
+
+
 def main() -> None:
     """Load the settings, build the server and serve it over stdio."""
     try:
-        settings = load_settings(ENV_FILE)
+        env_file = env_file_path()
+        settings = load_settings(env_file)
     except SettingsError as error:
         sys.exit(str(error))  # exits with status 1, the message on stderr
+    warn_about_working_directory_env(env_file)
     configure_logging(settings.log_format)
     create_server(settings).run()

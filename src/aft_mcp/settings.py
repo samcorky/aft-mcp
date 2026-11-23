@@ -1,10 +1,14 @@
 """Settings for the AFT MCP server, loaded and validated once at startup.
 
-Values come from the process environment first, then from ``.env`` in the working
-directory. Only the base URL and a way to sign in are required; a missing or invalid
-setting stops the server, and the error names every bad setting at once.
+Values come from the process environment first, then from a ``.env`` file: the one
+named by ``AFT_MCP_ENV_FILE``, or else ``aft-mcp/.env`` in the user's config directory
+(see ``env_file_path``). The working directory is never read, so starting the server
+inside someone else's project can't change where it connects. Only the base URL and a
+way to sign in are required; a missing or invalid setting stops the server, and the
+error names every bad setting at once.
 """
 
+import os
 from pathlib import Path
 from typing import Annotated, Literal, Self
 from urllib.parse import urljoin
@@ -21,8 +25,10 @@ from pydantic import (
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_PREFIX = "AFT_MCP_"
-# Read after the environment, relative to the working directory; it may be missing.
-ENV_FILE = Path(".env")
+# Names the .env file to read. It is not a setting, so it comes from the environment.
+ENV_FILE_VARIABLE = f"{ENV_PREFIX}ENV_FILE"
+# The directory under the user's config directory that holds the default .env.
+CONFIG_DIR_NAME = "aft-mcp"
 # Where AFT serves its own spec, relative to the base URL.
 DEFAULT_SPEC_PATH = "api/apispec.json"
 # Seconds to wait for AFT before a request fails.
@@ -169,15 +175,53 @@ def _describe(error: ValidationError) -> list[str]:
     return problems
 
 
+def _on_windows() -> bool:
+    return os.name == "nt"
+
+
+def default_env_file() -> Path:
+    """``aft-mcp/.env`` in the user's config directory.
+
+    ``$XDG_CONFIG_HOME`` (when absolute) or ``~/.config`` on Linux and macOS, and
+    ``%APPDATA%`` on Windows.
+    """
+    if _on_windows():
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+    else:
+        xdg = Path(os.environ.get("XDG_CONFIG_HOME") or "")
+        base = xdg if xdg.is_absolute() else Path.home() / ".config"
+    return base / CONFIG_DIR_NAME / ".env"
+
+
+def env_file_path() -> Path:
+    """The ``.env`` file to read: ``AFT_MCP_ENV_FILE`` if set, else the default.
+
+    The default may be missing: the settings then come from the environment alone, as
+    when an MCP client passes them in its own configuration. A file named explicitly
+    must exist, so a typo isn't silently ignored.
+
+    Raises:
+        SettingsError: ``AFT_MCP_ENV_FILE`` names a file that doesn't exist.
+    """
+    named = os.environ.get(ENV_FILE_VARIABLE)
+    if not named:
+        return default_env_file()
+    path = Path(named).expanduser()
+    if not path.is_file():
+        raise SettingsError([f"{ENV_FILE_VARIABLE}: no such file: {path}"])
+    return path
+
+
 def load_settings(env_file: Path | None) -> Settings:
     """Read and validate every setting.
 
     Args:
-        env_file: The ``.env`` file to read after the environment (``ENV_FILE``),
-            or None to read the environment only, as the tests do so that a
-            developer's ``.env`` never applies. A missing file is fine: the settings
-            then come from the environment alone, as when an MCP client passes them
-            in its own configuration.
+        env_file: The ``.env`` file to read after the environment (usually
+            ``env_file_path()``), or None to read the environment only, as the
+            tests do so that a developer's ``.env`` never applies. A missing file is
+            fine: the settings then come from the environment alone, as when an MCP
+            client passes them in its own configuration.
 
     Raises:
         SettingsError: Naming every missing or invalid setting.

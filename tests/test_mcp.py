@@ -366,11 +366,18 @@ async def test_stdio_server_lists_tools_and_calls_aft(
     base_url, seen = local_aft
     spec_file = tmp_path / "spec.json"
     spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
-    # Run from an empty directory with every setting passed, so a developer's own
-    # .env never applies.
-    env = {**aft_env, "AFT_MCP_BASE_URL": base_url, "AFT_MCP_SPEC_FILE": str(spec_file)}
+    # Every setting is passed, and the config directory is an empty temporary one, so
+    # a developer's own .env never applies. A .env in the working directory, which
+    # would turn on read-only mode, must be ignored.
+    env = {
+        **aft_env,
+        "AFT_MCP_BASE_URL": base_url,
+        "AFT_MCP_SPEC_FILE": str(spec_file),
+        "XDG_CONFIG_HOME": str(tmp_path / "config"),
+    }
     workdir = tmp_path / "cwd"
     workdir.mkdir()
+    (workdir / ".env").write_text("AFT_MCP_READ_ONLY=true\n", encoding="utf-8")
     transport = StdioTransport(
         command=sys.executable, args=["-m", "aft_mcp"], env=env, cwd=str(workdir)
     )
@@ -380,6 +387,7 @@ async def test_stdio_server_lists_tools_and_calls_aft(
         result = await stdio_client.call_tool("get_boards", {})
 
     assert "get_boards" in names
+    assert "patch_cards_by_card_id" in names  # the planted .env was not read
     assert not {n for n in names if n.startswith("delete_")}
     assert result.structured_content == {"result": BOARDS}
     auth = basic_auth(aft_env["AFT_MCP_USERNAME"], aft_env["AFT_MCP_PASSWORD"])

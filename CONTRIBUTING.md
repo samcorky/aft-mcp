@@ -52,8 +52,9 @@ run them. There are three layers:
 | `tests/test_server.py`          | Configuration, spec loading, and which endpoints become tools (with the reviewed snapshots) |
 | `tests/test_mcp.py`             | A real MCP client: handshake, tool calls and the HTTP each one sends to a stubbed AFT, plus an `e2e` test that runs `python -m aft_mcp` over stdio against a local fake AFT |
 
-To try the server against a real AFT, copy `.env.example` to `.env` and fill it in (see
-[docs/settings.md](docs/settings.md)).
+To try the server against a real AFT, copy `.env.example` to `~/.config/aft-mcp/.env`, or
+to any file named by `AFT_MCP_ENV_FILE`, and fill it in (see [docs/settings.md](docs/settings.md)).
+A `.env` in the checkout is not read.
 
 ## Common tasks
 

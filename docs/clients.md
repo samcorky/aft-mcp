@@ -3,34 +3,43 @@
 The server speaks MCP over stdio, so any MCP client launches it as a subprocess. There are two ways to give the client
 a command to run.
 
+## Where the settings live
+
+The server reads its settings from the environment, then from one `.env` file:
+
+- **By default**, `aft-mcp/.env` in your config directory: `~/.config/aft-mcp/.env` on Linux and macOS
+  (`$XDG_CONFIG_HOME/aft-mcp/.env` if you set it), `%APPDATA%\aft-mcp\.env` on Windows. Make the directory readable
+  only by you, and start the file from [`.env.example`](../.env.example).
+- **`AFT_MCP_ENV_FILE`**, set in the client config's environment, names another file instead, for example one per
+  AFT instance (`prod.env`, `test.env`). It must exist.
+- **The working directory is never read**, so the server behaves the same whichever project the client starts it in.
+  If an old `.env` is still there, the server says on stderr that it ignored it.
+
+Without a `.env`, pass every setting as an environment variable in the client config instead. That puts the token in
+the client config, so prefer the file.
+
 ## With uvx (no checkout)
 
 [`uvx`](https://docs.astral.sh/uv/guides/tools/) (part of uv) installs aft-mcp into a cached, isolated environment and
 runs it, so there is nothing to clone or keep in sync:
 
 ```bash
-uvx --directory /path/to/aft-config --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
 ```
 
-- **`--directory` is where the settings live.** uvx changes to that directory first, so the server reads the `.env`
-  there. Make it a directory of its own holding only that `.env` (start from [`.env.example`](../.env.example)),
-  readable only by you. Always pass it: without it the server reads `.env` from whatever directory the client starts
-  in.
 - **Pin `<ref>`** to a release tag (such as `v2026.11.0`) or a commit, never a branch. uvx installs the pinned version
   once and reuses it, so the code only changes when you change the ref, after reading what changed. `@main` would
   give a different server whenever `main` moves.
 - **Upgrading** is changing the ref in the client config and restarting the client. `uvx --refresh ...` rebuilds the
   cached environment if it ever needs it.
-- **Without a `.env`**, leave out `--directory` and pass every setting as an environment variable in the client
-  config instead. That puts the password in the client config, so prefer the `.env`.
 
 Once aft-mcp is published to PyPI ([#21](https://github.com/samcorky/aft-mcp/issues/21)), `--from git+...` becomes
-`uvx --directory /path/to/aft-config aft-mcp@2026.11.0`.
+`uvx aft-mcp@2026.11.0`.
 
 ## From a checkout
 
-For development, or to run code you have reviewed locally, point the client at your clone. `uv run --directory`
-starts the server in the checkout, so it reads the `.env` there:
+For development, or to run code you have reviewed locally, point the client at your clone. It reads the same settings
+file as above:
 
 ```bash
 uv run --directory /path/to/aft-mcp aft-mcp
@@ -39,11 +48,12 @@ uv run --directory /path/to/aft-mcp aft-mcp
 ## Claude Code
 
 ```bash
-claude mcp add aft -- uvx --directory /path/to/aft-config --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+claude mcp add aft -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
 ```
 
 Add `--scope user` to make it available in every project. Check it with `claude mcp list` or `/mcp` inside a session.
-From a checkout, use `claude mcp add aft -- uv run --directory /path/to/aft-mcp aft-mcp`.
+From a checkout, use `claude mcp add aft -- uv run --directory /path/to/aft-mcp aft-mcp`. To use another settings
+file, add `-e AFT_MCP_ENV_FILE=/path/to/prod.env` before the `--`.
 
 ## Claude Desktop
 
@@ -54,18 +64,14 @@ Add this to `claude_desktop_config.json` (Settings, then Developer, then Edit Co
   "mcpServers": {
     "aft": {
       "command": "uvx",
-      "args": [
-        "--directory", "/path/to/aft-config",
-        "--from", "git+https://github.com/samcorky/aft-mcp@<ref>",
-        "aft-mcp"
-      ]
+      "args": ["--from", "git+https://github.com/samcorky/aft-mcp@<ref>", "aft-mcp"]
     }
   }
 }
 ```
 
 Claude Desktop may not see the `PATH` of your shell; if it can't find `uvx`, give its full path as `command` (`which
-uvx`, or `where uvx` on Windows).
+uvx`, or `where uvx` on Windows). To use another settings file, add `"env": {"AFT_MCP_ENV_FILE": "/path/to/prod.env"}`.
 
 ## Claude Agent SDK
 
@@ -77,8 +83,6 @@ options = ClaudeAgentOptions(
         "aft": {
             "command": "uvx",
             "args": [
-                "--directory",
-                "/path/to/aft-config",
                 "--from",
                 "git+https://github.com/samcorky/aft-mcp@<ref>",
                 "aft-mcp",

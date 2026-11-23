@@ -38,7 +38,7 @@ You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.14 itself if need
 1. **Make an AFT user for the agent.** In AFT's User Management, create a user (for example `claude`), make it
    **API only**, give it access to the boards the agent should work on, and choose **Create API Token**.
 
-2. **Put the settings in a directory of their own**, readable only by you, for example `~/.config/aft-mcp/.env`
+2. **Put the settings in `~/.config/aft-mcp/.env`** (`%APPDATA%\aft-mcp\.env` on Windows), readable only by you
    (`mkdir -p ~/.config/aft-mcp && chmod 700 ~/.config/aft-mcp`). Two settings are enough:
 
    ```dotenv
@@ -49,7 +49,7 @@ You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.14 itself if need
 3. **Add it to Claude Code**, pinning `<ref>` to a release tag or commit:
 
    ```bash
-   claude mcp add aft -- uvx --directory ~/.config/aft-mcp --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+   claude mcp add aft -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
    ```
 
    Then ask Claude "What is on my AFT boards?", or check the connection with `/mcp`.
