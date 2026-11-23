@@ -139,6 +139,34 @@ async def test_write_tool_sends_path_params_and_a_json_body(
     assert json.loads(request.content) == {"title": "Renamed"}
 
 
+async def test_read_only_server_lists_no_writes_and_refuses_them(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    settings: Settings,
+    aft_like_spec: dict[str, Any],
+    fake_aft: FakeAft,
+) -> None:
+    spec_file = tmp_path / "spec.json"
+    spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
+    real_build_client = server.build_client
+    transport = httpx2.MockTransport(fake_aft)
+    monkeypatch.setattr(
+        server, "build_client", lambda given: real_build_client(given, transport)
+    )
+    read_only = settings.model_copy(update={"spec_file": spec_file, "read_only": True})
+
+    async with Client(server.create_server(read_only)) as connected:
+        names = {tool.name for tool in await connected.list_tools()}
+        result = await connected.call_tool(
+            "patch_cards_by_card_id", {"card_id": 5, "title": "x"}, raise_on_error=False
+        )
+
+    assert names
+    assert all(name.startswith("get_") for name in names)
+    assert result.is_error
+    assert fake_aft.requests == []
+
+
 async def test_excluded_tool_is_unknown_and_never_reaches_aft(
     client: Client[Any], fake_aft: FakeAft
 ) -> None:

@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import pytest
@@ -15,8 +16,9 @@ ENV = {
 
 @pytest.fixture
 def aft_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """Set every required AFT_* setting, and make sure AFT_SPEC_FILE is unset."""
-    monkeypatch.delenv("AFT_SPEC_FILE", raising=False)
+    """Set every required AFT_* setting, and clear every other AFT_* variable."""
+    for name in [name for name in os.environ if name.startswith("AFT_")]:
+        monkeypatch.delenv(name)
     for name, value in ENV.items():
         monkeypatch.setenv(name, value)
     return ENV

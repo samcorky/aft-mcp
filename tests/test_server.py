@@ -17,12 +17,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def tool_names(spec: dict[str, Any]) -> set[str]:
+def tool_names(spec: dict[str, Any], *, read_only: bool = False) -> set[str]:
     """Build a server from a spec with the real route maps and list its tools."""
     mcp = FastMCP.from_openapi(
         openapi_spec=convert(spec),
         client=httpx2.AsyncClient(base_url="https://aft.test"),
-        route_maps=server.build_route_maps(),
+        route_maps=server.build_route_maps(read_only=read_only),
     )
     return {tool.name for tool in asyncio.run(mcp.list_tools())}
 
@@ -67,6 +67,29 @@ def test_only_safe_reads_and_allowed_writes_become_tools(
         "patch_cards_by_card_id",
         "post_cards_comments",
     }
+
+
+def test_read_only_mode_exposes_only_the_safe_reads(
+    aft_like_spec: dict[str, Any],
+) -> None:
+    assert tool_names(aft_like_spec, read_only=True) == {
+        "get_boards",
+        "get_boards_by_board_id",
+        "get_boards_columns",
+        "get_cards_by_card_id",
+    }
+
+
+def test_create_server_honours_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    aft_like_spec: dict[str, Any],
+) -> None:
+    stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
+    mcp = server.create_server(settings.model_copy(update={"read_only": True}))
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert names
+    assert all(name.startswith("get_") for name in names)
 
 
 def test_never_exposes_delete_board_writes_or_side_effect_gets(

@@ -88,8 +88,13 @@ ALLOWED_WRITES: list[tuple[HttpMethod, str]] = [
 ]
 
 
-def build_route_maps() -> list[RouteMap]:
-    """Expose safe GET endpoints and allowed writes as tools; exclude the rest."""
+def build_route_maps(*, read_only: bool) -> list[RouteMap]:
+    """Expose safe GET endpoints and allowed writes as tools; exclude the rest.
+
+    Args:
+        read_only: Leave out every write, so only the safe GET endpoints remain.
+    """
+    writes = [] if read_only else ALLOWED_WRITES
     return [
         *(
             RouteMap(methods=["GET"], pattern=pattern, mcp_type=MCPType.EXCLUDE)
@@ -97,7 +102,7 @@ def build_route_maps() -> list[RouteMap]:
         ),
         *(
             RouteMap(methods=[method], pattern=pattern, mcp_type=MCPType.TOOL)
-            for method, pattern in ALLOWED_WRITES
+            for method, pattern in writes
         ),
         RouteMap(methods=["GET"], mcp_type=MCPType.TOOL),
         RouteMap(mcp_type=MCPType.EXCLUDE),
@@ -111,7 +116,7 @@ def create_server(settings: Settings) -> FastMCP:
         client=build_client(settings),
         name="AFT",
         version=__version__,
-        route_maps=build_route_maps(),
+        route_maps=build_route_maps(read_only=settings.read_only),
     )
 
 

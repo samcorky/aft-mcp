@@ -13,6 +13,7 @@ ALL_SETTINGS = [
     "AFT_USERNAME",
     "AFT_PASSWORD",
     "AFT_ENV_FILE",
+    "AFT_READ_ONLY",
 ]
 
 
@@ -124,6 +125,28 @@ def test_an_empty_value_counts_as_unset(
     assert load_settings(env_file=None).spec_file is None
     monkeypatch.setenv("AFT_PASSWORD", "")
     assert problems() == ["AFT_PASSWORD: Field required"]
+
+
+def test_read_only_is_off_unless_set(aft_env: dict[str, str]) -> None:
+    assert load_settings(env_file=None).read_only is False
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [("true", True), ("1", True), ("false", False), ("0", False)]
+)
+def test_read_only_accepts_true_or_false(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], value: str, expected: bool
+) -> None:
+    monkeypatch.setenv("AFT_READ_ONLY", value)
+    assert load_settings(env_file=None).read_only is expected
+
+
+def test_read_only_rejects_anything_else(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
+) -> None:
+    monkeypatch.setenv("AFT_READ_ONLY", "maybe")
+    (problem,) = problems()
+    assert problem.startswith("AFT_READ_ONLY: ")
 
 
 def test_the_password_never_appears_in_output(

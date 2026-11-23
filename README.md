@@ -26,6 +26,8 @@ OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://g
 - **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `src/aft_mcp/server.py`): edit or move a
   card, set done status and assignees, archive/unarchive cards, add comments and checklist items, update checklist
   items, add cards and columns, and rename or reorder columns.
+- **Read-only mode:** with `AFT_READ_ONLY=true` no writes are exposed at all, only the reads above. Use it for a
+  look-only connection, such as a second instance against a production AFT.
 - **Never exposed:** `DELETE` routes, creating boards, and board-level changes (rename, owner,
   public link, import).
 
@@ -58,6 +60,7 @@ shown in reprs, logs or errors.
 | `AFT_USERNAME`  | yes      | AFT account email, sent as HTTP basic auth                             |
 | `AFT_PASSWORD`  | yes      | AFT account password                                                   |
 | `AFT_SPEC_FILE` | no       | Load the spec from a local file instead of `AFT_SPEC_URL`              |
+| `AFT_READ_ONLY` | no       | `true` to expose only the safe reads, no writes (default `false`)      |
 | `AFT_ENV_FILE`  | no       | Path of the `.env` file to read, instead of `./.env` (environment only) |
 
 \* Not needed when `AFT_SPEC_FILE` is set.
@@ -153,7 +156,8 @@ permission rules. To keep an agent read-only, allow only the `get_*` tools:
 { "permissions": { "allow": ["mcp__aft__get_*"] } }
 ```
 
-The write tools are `patch_*`, `post_*` and `put_*`.
+The write tools are `patch_*`, `post_*` and `put_*`. To enforce this in the server rather than the client, set
+`AFT_READ_ONLY=true`: the write tools are then never created.
 
 ## How it works
 

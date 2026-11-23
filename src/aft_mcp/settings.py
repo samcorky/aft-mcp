@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     timeout: float = Field(gt=0, allow_inf_nan=False)
     username: str = Field(min_length=1)
     password: SecretStr = Field(min_length=1)
+    # Optional switches: unset means off, the behaviour before they existed.
+    read_only: bool = False
 
     @model_validator(mode="after")
     def _needs_a_spec(self) -> Self:
