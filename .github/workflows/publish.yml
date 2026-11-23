@@ -121,6 +121,19 @@ jobs:
             echo "$message"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # As in release.yml: a release must be made from a tag on main, or no image is
+      # built or pushed for it (every image job needs this one).
+      - name: Check the release tag is on main
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "refs/tags/${TAG}" origin/main; then
+            echo "::error::${TAG} is not on main; no image is published."
+            exit 1
+          fi
+
       # A release is built from its tag, so the two must agree.
       - name: Check the release tag
         if: github.event_name == 'release'
