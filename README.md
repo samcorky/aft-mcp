@@ -9,9 +9,10 @@ OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://g
 - **Reads:** every `GET` endpoint, except any `GET` that changes state (`SIDE_EFFECT_GET_PATTERNS` in `server.py`).
 - **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `server.py`): edit or move a
   card, set done status and assignees, archive/unarchive cards, add comments and checklist items, update checklist
-  items, add cards and columns, and rename or reorder columns.
-- **Never exposed:** `DELETE` routes, creating boards, and board-level changes (rename, owner,
-  public link, import).
+  items, add cards and columns, rename or reorder columns, and promote cards to a global board and move them between
+  its states.
+- **Never exposed:** `DELETE` routes (including demoting a card from a global board), creating boards, and
+  board-level or global-board settings (rename, owner, visibility, public link, import).
 
 ## Requirements
 
