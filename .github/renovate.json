@@ -1,0 +1,70 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":automergeStableNonMajor",
+    ":automergeRequireAllStatusChecks",
+    ":configMigration",
+    ":enableVulnerabilityAlertsWithLabel(security)",
+    ":label(dependencies)",
+    ":maintainLockFilesWeekly",
+    ":rebaseStalePrs",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "enabledManagers": [
+    "pep621",
+    "github-actions",
+    "pre-commit"
+  ],
+  "prHourlyLimit": 5,
+  "prConcurrentLimit": 5,
+  "schedule": [
+    "before 9am on Monday"
+  ],
+  "timezone": "Europe/London",
+  "packageRules": [
+    {
+      "description": "Python dependencies: one PR for every non-major update.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "Python dependencies",
+      "semanticCommitType": "chore",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "description": "GitHub Actions: grouped, with a ci type so the labeller files them under CI/CD.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "groupName": "GitHub Actions",
+      "semanticCommitType": "ci",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "description": "pre-commit hooks: grouped, keeping the frozen SHA pins.",
+      "matchManagers": [
+        "pre-commit"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "groupName": "pre-commit hooks",
+      "semanticCommitType": "ci",
+      "semanticCommitScope": "deps"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+name: Documentation
+description: Report something missing, wrong or unclear in the documentation
+title: "[docs] "
+type: Task
+labels:
+  - documentation
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Where
+      description: The file and section, or a link.
+      placeholder: e.g. README.md, "Connecting to Claude and agents"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested change

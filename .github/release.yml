@@ -1,0 +1,34 @@
+# Groups the generated release notes (the "Generate release notes" button, or
+# `gh release create --generate-notes`) by pull request label. A pull request appears
+# under the first category it matches, so the order matters. Labels are applied by
+# pr-labeller.yml and Renovate; see "Labels" in CONTRIBUTING.md.
+changelog:
+  exclude:
+    labels:
+      - skip-release-notes
+  categories:
+    - title: Breaking changes
+      labels:
+        - breaking-change
+    - title: Security
+      labels:
+        - security
+    - title: Enhancements
+      labels:
+        - enhancement
+        - performance
+    - title: Bug fixes
+      labels:
+        - bug
+    - title: Dependencies
+      labels:
+        - dependencies
+    - title: Housekeeping
+      labels:
+        - maintenance
+        - tests
+        - CI/CD
+        - documentation
+    - title: Other changes
+      labels:
+        - "*"
