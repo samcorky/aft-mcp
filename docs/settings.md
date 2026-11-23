@@ -18,3 +18,6 @@ Every setting is an environment variable. The server reads the process environme
 | `AFT_MCP_READ_ONLY` | no | true or false | `false` | any | Expose only the safe reads, so no tool can change anything. |
 | `AFT_MCP_BOARD_IDS` | no | comma-separated list of whole numbers | unset | each more than 0 | Only let the tools reach these boards; unset allows every board the AFT user can see. Example: `12,15`. |
 | `AFT_MCP_LOG_FORMAT` | no | text | `logfmt` | `logfmt` or `json` | How the log on stderr is written: logfmt lines, or one JSON object per line for log pipelines. |
+| `AFT_MCP_LOG_STDERR` | no | true or false | `true` | any | Write the log to stderr. Over SSH, stderr goes back to the client, so a server can set this to false and keep the log in syslog instead. |
+| `AFT_MCP_LOG_SYSLOG` | no | true or false | `false` | any | Also send the log to the local syslog (`/dev/log`), so a server keeps the audit trail itself. A missing socket stops the server. |
+| `AFT_MCP_LOG_SYSLOG_FACILITY` | no | text | `user` | `user` or `auth` or `authpriv` or `daemon` or `local0` or `local1` or `local2` or `local3` or `local4` or `local5` or `local6` or `local7` | Syslog facility for the log; `auth` or `authpriv` puts it next to sshd's lines. |

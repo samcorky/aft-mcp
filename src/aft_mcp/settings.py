@@ -168,6 +168,42 @@ class Settings(BaseSettings):
         examples=["json"],
     )
 
+    log_stderr: bool = Field(
+        default=True,
+        description=(
+            "Write the log to stderr. Over SSH, stderr goes back to the client, so "
+            + "a server can set this to false and keep the log in syslog instead."
+        ),
+    )
+    log_syslog: bool = Field(
+        default=False,
+        description=(
+            "Also send the log to the local syslog (`/dev/log`), so a server keeps "
+            + "the audit trail itself. A missing socket stops the server."
+        ),
+    )
+    log_syslog_facility: Literal[
+        "user",
+        "auth",
+        "authpriv",
+        "daemon",
+        "local0",
+        "local1",
+        "local2",
+        "local3",
+        "local4",
+        "local5",
+        "local6",
+        "local7",
+    ] = Field(
+        default="user",
+        description=(
+            "Syslog facility for the log; `auth` or `authpriv` puts it next to "
+            + "sshd's lines."
+        ),
+        examples=["auth"],
+    )
+
     @field_validator("board_ids", mode="before")
     @classmethod
     def _split_board_ids(cls, value: object) -> object:
@@ -194,6 +230,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"{_SPEC_URL} must be on the same host and port as {_BASE_URL}; "
                 + f"load a spec from elsewhere with {ENV_PREFIX}SPEC_FILE"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _logs_somewhere(self) -> Self:
+        if not self.log_stderr and not self.log_syslog:
+            raise ValueError(
+                f"{ENV_PREFIX}LOG_STDERR=false needs {ENV_PREFIX}LOG_SYSLOG=true, "
+                + "or the log would go nowhere"
             )
         return self
 

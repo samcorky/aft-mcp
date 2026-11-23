@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -9,7 +10,7 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
 from aft_mcp import __version__
-from aft_mcp.audit import AuditLog, configure_logging, log_response
+from aft_mcp.audit import AuditLog, LoggingError, configure_logging, log_response
 from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import (
     ENV_FILE_VARIABLE,
@@ -221,6 +222,12 @@ def warn_about_working_directory_env(env_file: Path) -> None:
         )
 
 
+def ssh_client_address() -> str | None:
+    """``ip:port`` of the SSH client, when the server runs in an SSH session."""
+    fields = os.environ.get("SSH_CONNECTION", "").split()
+    return f"{fields[0]}:{fields[1]}" if len(fields) >= 2 else None
+
+
 def main() -> None:
     """Load the settings, build the server and serve it over stdio."""
     try:
@@ -229,7 +236,18 @@ def main() -> None:
     except SettingsError as error:
         sys.exit(str(error))  # exits with status 1, the message on stderr
     warn_about_working_directory_env(env_file)
-    configure_logging(settings.log_format)
+    try:
+        configure_logging(
+            settings.log_format,
+            to_stream=settings.log_stderr,
+            syslog_facility=(
+                settings.log_syslog_facility if settings.log_syslog else None
+            ),
+        )
+    except LoggingError as error:
+        sys.exit(f"aft-mcp: {error}")
+    if ssh_client := ssh_client_address():
+        structlog.contextvars.bind_contextvars(ssh_client=ssh_client)
     if settings.instance is not None:
         # Adds the field to every log line for the life of the process.
         structlog.contextvars.bind_contextvars(instance=settings.instance)

@@ -12,6 +12,7 @@ from fastmcp import FastMCP
 from pydantic import SecretStr
 
 from aft_mcp import server
+from aft_mcp.audit import LoggingError
 from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import Settings, SettingsError
 from aft_mcp.swagger_convert import convert
@@ -337,7 +338,7 @@ def test_main_warns_about_each_http_url(
         }
     )
     monkeypatch.setattr(server, "load_settings", lambda *_: insecure)
-    monkeypatch.setattr(server, "configure_logging", lambda _format: None)
+    monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
     monkeypatch.setattr(
         server, "create_server", lambda _s: type("S", (), {"run": lambda _self: None})()
     )
@@ -354,7 +355,7 @@ def test_main_exits_when_building_the_server_finds_a_settings_problem(
         raise SettingsError(["the spec at x redirected to http: y"])
 
     monkeypatch.setattr(server, "load_settings", lambda *_: settings)
-    monkeypatch.setattr(server, "configure_logging", lambda _format: None)
+    monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
     monkeypatch.setattr(server, "create_server", refuse)
     with pytest.raises(SystemExit) as exited:
         server.main()
@@ -447,7 +448,56 @@ def test_main_adds_the_instance_to_every_log_line(
 
     labelled = settings.model_copy(update={"instance": "test"})
     monkeypatch.setattr(server, "load_settings", lambda *_: labelled)
-    monkeypatch.setattr(server, "configure_logging", lambda _format: None)
+    monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
     monkeypatch.setattr(server, "create_server", lambda _s: LoggingServer())
     server.main()
     assert log_records()[-1]["instance"] == "test"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("203.0.113.5 52114 192.0.2.1 22", "203.0.113.5:52114"), ("", None)],
+)
+def test_ssh_client_address(
+    monkeypatch: pytest.MonkeyPatch, value: str, expected: str | None
+) -> None:
+    monkeypatch.setenv("SSH_CONNECTION", value)
+    assert server.ssh_client_address() == expected
+
+
+def test_main_passes_the_log_settings_and_binds_the_ssh_client(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, log_records: LogRecords
+) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    class LoggingServer:
+        def run(self) -> None:
+            structlog.get_logger("aft_mcp.test").info("serving")
+
+    to_syslog = settings.model_copy(
+        update={"log_syslog": True, "log_stderr": False, "log_syslog_facility": "auth"}
+    )
+    monkeypatch.setenv("SSH_CONNECTION", "203.0.113.5 52114 192.0.2.1 22")
+    monkeypatch.setattr(server, "load_settings", lambda *_: to_syslog)
+    monkeypatch.setattr(
+        server, "configure_logging", lambda *a, **k: calls.append((a, k))
+    )
+    monkeypatch.setattr(server, "create_server", lambda _s: LoggingServer())
+    server.main()
+    assert calls == [
+        (("logfmt",), {"to_stream": False, "syslog_facility": "auth"}),
+    ]
+    assert log_records()[-1]["ssh_client"] == "203.0.113.5:52114"
+
+
+def test_main_exits_when_syslog_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    def unreachable(*_: object, **__: object) -> None:
+        raise LoggingError("can't log to syslog at /dev/log: No such file")
+
+    monkeypatch.setattr(server, "load_settings", lambda *_: settings)
+    monkeypatch.setattr(server, "configure_logging", unreachable)
+    with pytest.raises(SystemExit) as exited:
+        server.main()
+    assert exited.value.code == "aft-mcp: can't log to syslog at /dev/log: No such file"

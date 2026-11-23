@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import logging
+import socket
 from typing import TYPE_CHECKING, Any
 
 import httpx2
@@ -14,6 +15,9 @@ from fastmcp.tools.base import ToolResult
 from aft_mcp import audit
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
     from tests.conftest import LogRecords
 
 pytestmark = pytest.mark.anyio
@@ -248,3 +252,61 @@ def test_an_exception_is_rendered_on_one_line() -> None:
     [line] = stream.getvalue().splitlines()
     assert "exception=" in line
     assert "ValueError: bad" in line
+
+
+@pytest.fixture
+def syslog_socket(tmp_path: Path) -> Iterator[tuple[str, socket.socket]]:
+    """A local Unix datagram socket standing in for /dev/log."""
+    path = str(tmp_path / "log")
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    sock.bind(path)
+    sock.settimeout(2)
+    yield path, sock
+    sock.close()
+
+
+def test_syslog_gets_the_same_line_with_ident_and_facility(
+    syslog_socket: tuple[str, socket.socket],
+) -> None:
+    path, sock = syslog_socket
+    stream = io.StringIO()
+    audit.configure_logging(
+        "logfmt", stream, syslog_facility="auth", syslog_address=path
+    )
+    logging.getLogger("fastmcp").warning("careful")
+    message = sock.recv(4096).decode()
+    # <priority> is facility * 8 + severity: auth is 4, warning is 4.
+    assert message.startswith("<36>aft-mcp: timestamp=")
+    assert "level=warning logger=fastmcp event=careful" in message
+    assert "event=careful" in stream.getvalue()
+
+
+def test_stderr_can_be_turned_off_when_syslog_is_on(
+    syslog_socket: tuple[str, socket.socket],
+) -> None:
+    path, sock = syslog_socket
+    stream = io.StringIO()
+    audit.configure_logging(
+        "json", stream, to_stream=False, syslog_facility="user", syslog_address=path
+    )
+    structlog.get_logger("aft_mcp.test").info("only syslog")
+    assert '"event": "only syslog"' in sock.recv(4096).decode()
+    assert stream.getvalue() == ""
+    names = [h.get_name() for h in logging.getLogger().handlers]
+    assert names.count(audit.HANDLER_NAME) == 1
+
+
+def test_a_missing_syslog_socket_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(audit.LoggingError, match="can't log to syslog at"):
+        audit.configure_logging(
+            "logfmt", syslog_facility="user", syslog_address=str(tmp_path / "none")
+        )
+
+
+def test_a_syslog_address_that_is_not_a_socket_is_an_error(tmp_path: Path) -> None:
+    not_a_socket = tmp_path / "file"
+    not_a_socket.write_text("", encoding="utf-8")
+    with pytest.raises(audit.LoggingError, match="not a socket"):
+        audit.configure_logging(
+            "logfmt", syslog_facility="user", syslog_address=str(not_a_socket)
+        )

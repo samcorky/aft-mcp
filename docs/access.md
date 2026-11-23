@@ -74,6 +74,15 @@ Request and response bodies, query strings and error messages are never logged, 
 of it. MCP clients keep stderr apart from the protocol stream; Claude Code and Claude Desktop write it to their MCP
 server logs.
 
+### On a server: syslog
+
+When aft-mcp runs on a server and is reached over SSH, its stderr travels back to the client, so the log ends up on
+the workstation rather than the server. `AFT_MCP_LOG_SYSLOG=true` also sends every line to the local syslog
+(`/dev/log`, ident `aft-mcp`), with `AFT_MCP_LOG_SYSLOG_FACILITY` (default `user`; `auth` or `authpriv` puts it next to
+sshd's lines). `AFT_MCP_LOG_STDERR=false` then stops the client receiving the log at all. When `SSH_CONNECTION` is set,
+every line carries `ssh_client` (the client's address and port). A missing syslog socket stops the server rather than
+losing the log.
+
 ## Client permissions
 
 See [Tool names and permissions](clients.md#tool-names-and-permissions) for allowing only the read tools in the client.

@@ -24,8 +24,11 @@ routed through the same handler and format; see ``configure_logging``.
 """
 
 import logging
+import logging.handlers
+import os
 import re
 import secrets
+import stat
 import sys
 import time
 from typing import TYPE_CHECKING, Any, Literal, TextIO
@@ -127,8 +130,44 @@ def _elapsed_ms(started: float) -> int:
 HANDLER_NAME = "aft_mcp"
 
 
-def configure_logging(log_format: LogFormat, stream: TextIO = sys.stderr) -> None:
-    """Send every log line, ours and third-party, to ``stream`` (stderr).
+class LoggingError(RuntimeError):
+    """A log destination can't be used, such as a missing syslog socket."""
+
+
+SYSLOG_IDENT = "aft-mcp: "
+DEFAULT_SYSLOG_ADDRESS = "/dev/log"
+
+
+def _syslog_handler(facility: str, address: str) -> logging.Handler:
+    """A handler for the local syslog, or a LoggingError naming the socket.
+
+    SysLogHandler only reports a missing socket when it first sends, and then only
+    to stderr, so the socket is checked here first.
+    """
+    try:
+        if not stat.S_ISSOCK(os.stat(address).st_mode):
+            msg = f"can't log to syslog at {address}: not a socket"
+            raise LoggingError(msg)
+        handler = logging.handlers.SysLogHandler(
+            address=address,
+            facility=logging.handlers.SysLogHandler.facility_names[facility],
+        )
+    except OSError as error:
+        msg = f"can't log to syslog at {address}: {error.strerror or error}"
+        raise LoggingError(msg) from None
+    handler.ident = SYSLOG_IDENT
+    return handler
+
+
+def configure_logging(
+    log_format: LogFormat,
+    stream: TextIO = sys.stderr,
+    *,
+    to_stream: bool = True,
+    syslog_facility: str | None = None,
+    syslog_address: str = DEFAULT_SYSLOG_ADDRESS,
+) -> None:
+    """Send every log line, ours and third-party, to ``stream`` (stderr) and syslog.
 
     structlog runs on top of stdlib logging, and one handler on the root logger
     renders both structlog's lines and those of other libraries (FastMCP, httpx) as
@@ -139,6 +178,18 @@ def configure_logging(log_format: LogFormat, stream: TextIO = sys.stderr) -> Non
     propagating; that is undone here, so its lines take the same path. httpx logs
     each request at INFO with the full URL, which ``aft_response`` already covers
     without the query string, so only its warnings come through.
+
+    Args:
+        log_format: ``logfmt`` or ``json``, for every destination.
+        stream: Where the stream handler writes; stderr outside the tests.
+        to_stream: Write to ``stream`` at all. Over SSH, stderr goes back to the
+            client, so a server can turn it off and keep the log in syslog.
+        syslog_facility: Also send each line to the local syslog with this facility
+            (``user``, ``auth``, ``local0`` and so on); None for no syslog.
+        syslog_address: The syslog socket; the tests pass their own.
+
+    Raises:
+        LoggingError: The syslog socket can't be reached.
     """
     renderer: structlog.typing.Processor = (
         structlog.processors.JSONRenderer()
@@ -161,22 +212,27 @@ def configure_logging(log_format: LogFormat, stream: TextIO = sys.stderr) -> Non
         cache_logger_on_first_use=False,
     )
 
-    handler = logging.StreamHandler(stream)
-    handler.set_name(HANDLER_NAME)
-    handler.setFormatter(
-        structlog.stdlib.ProcessorFormatter(
-            foreign_pre_chain=shared,
-            processors=[
-                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                structlog.processors.format_exc_info,
-                renderer,
-            ],
-        )
+    handlers: list[logging.Handler] = []
+    if syslog_facility is not None:
+        handlers.append(_syslog_handler(syslog_facility, syslog_address))
+    if to_stream:
+        handlers.append(logging.StreamHandler(stream))
+    formatter = structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=shared,
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            structlog.processors.format_exc_info,
+            renderer,
+        ],
     )
     root = logging.getLogger()
     for old in [h for h in root.handlers if h.get_name() == HANDLER_NAME]:
         root.removeHandler(old)
-    root.addHandler(handler)
+        old.close()
+    for handler in handlers:
+        handler.set_name(HANDLER_NAME)
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
     root.setLevel(logging.WARNING)
     logging.getLogger("aft_mcp").setLevel(logging.INFO)
 

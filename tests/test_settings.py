@@ -489,3 +489,20 @@ def test_the_instance_is_a_short_lower_case_name(
     monkeypatch.setenv("AFT_MCP_INSTANCE", value)
     (problem,) = problems()
     assert problem.startswith("AFT_MCP_INSTANCE: ")
+
+
+def test_logging_goes_to_stderr_only_by_default(aft_env: dict[str, str]) -> None:
+    loaded = load_settings(env_file=None)
+    assert (loaded.log_stderr, loaded.log_syslog) == (True, False)
+    assert loaded.log_syslog_facility == "user"
+
+
+def test_turning_off_stderr_needs_syslog(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
+) -> None:
+    monkeypatch.setenv("AFT_MCP_LOG_STDERR", "false")
+    (problem,) = problems()
+    assert problem.startswith("AFT_MCP_LOG_STDERR=false needs AFT_MCP_LOG_SYSLOG=true")
+    monkeypatch.setenv("AFT_MCP_LOG_SYSLOG", "true")
+    monkeypatch.setenv("AFT_MCP_LOG_SYSLOG_FACILITY", "authpriv")
+    assert load_settings(env_file=None).log_syslog_facility == "authpriv"
