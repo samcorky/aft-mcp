@@ -1,15 +1,17 @@
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx2
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
-from swagger_convert import convert
+from swagger_convert import JSON, convert
 
-load_dotenv()
+if TYPE_CHECKING:
+    from fastmcp.utilities.openapi.models import HttpMethod
 
 
 def require_env(name: str) -> str:
@@ -20,21 +22,23 @@ def require_env(name: str) -> str:
     return value
 
 
-def load_spec_from_file(path: Path) -> dict:
+def load_spec_from_file(path: Path) -> JSON:
     """Load the AFT API specification from disk."""
     with path.open(encoding="utf-8") as f:
-        return json.load(f)
+        spec: JSON = json.load(f)
+    return spec
 
 
-def load_spec_from_url(url: str, timeout: float) -> dict:
+def load_spec_from_url(url: str, timeout: float) -> JSON:
     """Fetch the AFT API specification over HTTP."""
     response = httpx2.get(url, timeout=timeout, follow_redirects=True)
     response.raise_for_status()
-    return response.json()
+    spec: JSON = response.json()
+    return spec
 
 
-def load_spec() -> dict:
-    """Load the spec from AFT_SPEC_FILE if set, otherwise AFT_SPEC_URL, as OpenAPI 3."""
+def load_spec() -> JSON:
+    """Load the spec as OpenAPI 3, from AFT_SPEC_FILE if set, else AFT_SPEC_URL."""
     spec_file = os.getenv("AFT_SPEC_FILE")
     if spec_file:
         spec = load_spec_from_file(Path(spec_file))
@@ -45,12 +49,19 @@ def load_spec() -> dict:
     return convert(spec)
 
 
-def build_client() -> httpx2.AsyncClient:
-    """Create the HTTP client used to call the AFT API."""
+def build_client(
+    transport: httpx2.AsyncBaseTransport | None = None,
+) -> httpx2.AsyncClient:
+    """Create the HTTP client used to call the AFT API.
+
+    Args:
+        transport: Replaces the network transport; the tests pass a mock here.
+    """
     return httpx2.AsyncClient(
         base_url=require_env("AFT_BASE_URL"),
         timeout=float(require_env("AFT_TIMEOUT")),
         auth=(require_env("AFT_USERNAME"), require_env("AFT_PASSWORD")),
+        transport=transport,
     )
 
 
@@ -61,10 +72,12 @@ SIDE_EFFECT_GET_PATTERNS = [
 
 
 # Write operations allowed as tools: changes to things inside a board that can be
-# undone, plus adding columns and cards. No creating or deleting boards, no deleting columns or cards, and nothing board-level
-# (rename, owner, public link, import). DELETE is never exposed.
-ALLOWED_WRITES = [
-    ("PATCH", r"^/api/cards/\{card_id\}$"),  # edit title/description, move between columns
+# undone, plus adding columns and cards. No creating or deleting boards, no deleting
+# columns or cards, and nothing board-level (rename, owner, public link, import).
+# DELETE is never exposed.
+ALLOWED_WRITES: list[tuple[HttpMethod, str]] = [
+    # Edit title/description, move between columns.
+    ("PATCH", r"^/api/cards/\{card_id\}$"),
     ("PATCH", r"^/api/cards/\{card_id\}/done$"),
     ("PATCH", r"^/api/cards/\{card_id\}/archive$"),
     ("PATCH", r"^/api/cards/\{card_id\}/unarchive$"),
@@ -85,7 +98,7 @@ ALLOWED_WRITES = [
 
 
 def build_route_maps() -> list[RouteMap]:
-    """Expose safe GET endpoints and allowed writes as MCP tools; exclude everything else."""
+    """Expose safe GET endpoints and allowed writes as tools; exclude the rest."""
     return [
         *(
             RouteMap(methods=["GET"], pattern=pattern, mcp_type=MCPType.EXCLUDE)
@@ -110,7 +123,11 @@ def create_server() -> FastMCP:
     )
 
 
-mcp = create_server()
+def main() -> None:
+    """Load .env, build the server and serve it over stdio."""
+    load_dotenv()
+    create_server().run()
+
 
 if __name__ == "__main__":
-    mcp.run()
+    main()

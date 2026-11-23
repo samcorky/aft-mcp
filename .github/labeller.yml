@@ -1,0 +1,39 @@
+# Labels by changed paths, applied by pr-labeller.yml. Labels from the pull request
+# title prefix are applied by the same workflow; labels are only ever added.
+# Area labels say where a change is, not what kind of change it is, so they do not
+# count towards the "at least one label" check and are not in release.yml.
+"area: server":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "server.py"
+
+"area: converter":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "swagger_convert.py"
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - ".github/ISSUE_TEMPLATE/**"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
+
+CI/CD:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+          - ".pre-commit-config.yaml"
+
+# Only when every changed file is a manifest or lock file, so a feature that adds a
+# dependency is not filed under Dependencies.
+dependencies:
+  - changed-files:
+      - all-globs-to-all-files:
+          - "uv.lock"
+          - "pyproject.toml"
+          - ".github/renovate.json"
