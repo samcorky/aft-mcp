@@ -1,0 +1,3 @@
+# Normalise all text files to LF in the repository, regardless of the checking-out
+# platform or a contributor's core.autocrlf setting.
+* text=auto eol=lf

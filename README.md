@@ -143,3 +143,24 @@ The write tools are `patch_*`, `post_*` and `put_*`.
 - Credentials are held by the server, so every tool call acts as that one user. This is meant for local, single-user
   use over stdio.
 - Only the `GET` conversion path has been exercised against a live API.
+
+## Development
+
+```bash
+uv sync
+uv run poe init    # install the git hooks
+uv run poe check   # format, lint, types and tests, as CI runs them
+```
+
+The tests need no AFT instance and never read `.env`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow,
+code style, and the rules for changing which endpoints are exposed.
+
+## Contributing
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md),
+and report security issues privately as described in [SECURITY.md](SECURITY.md). For help, see
+[SUPPORT.md](SUPPORT.md).
+
+## Licence
+
+[MIT](LICENSE)

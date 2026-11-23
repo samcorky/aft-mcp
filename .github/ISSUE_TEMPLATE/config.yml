@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/samcorky/aft-mcp/security/advisories/new
+    about: Please report security issues privately, not as a public issue.
+  - name: A problem with AFT itself
+    url: https://github.com/sjefferson99/aft/issues
+    about: Bugs in the AFT application or its API belong in the AFT repository.

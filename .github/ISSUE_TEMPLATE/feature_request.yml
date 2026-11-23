@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest an improvement or new capability for aft-mcp
+title: "[feature] "
+type: Feature
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement.
+
+        Asking for a new **write** tool? Say whether the change can be undone through the MCP server. The server only exposes writes that are reversible, or that are clearly safe to undo in the AFT UI (see "What is exposed" in the README).
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear and concise description of the feature.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What problem does this solve, or what would an agent be able to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: The behaviour you would like, and the AFT API endpoints involved if you know them.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
