@@ -57,12 +57,16 @@ def test_only_safe_reads_and_allowed_writes_become_tools(
         "get_boards_by_board_id",
         "get_boards_columns",
         "get_cards_by_card_id",
+        "get_global_boards",
+        "get_global_boards_cards",
         # Allowed writes inside a board
         "post_boards_columns",
         "patch_columns_by_column_id",
         "post_columns_cards",
         "patch_cards_by_card_id",
         "post_cards_comments",
+        "post_global_boards_cards",
+        "patch_global_boards_cards_by_card_id",
     }
 
 
@@ -74,6 +78,7 @@ def test_never_exposes_delete_board_writes_or_side_effect_gets(
     assert "post_boards" not in names  # create a board
     assert "patch_boards_by_board_id" not in names  # board-level change
     assert "get_database_backup" not in names  # GET that creates a backup
+    assert "patch_global_boards_by_global_board_id" not in names  # settings
 
 
 # Reviewed snapshots of the exposure lists in server.py. Changing either list fails
@@ -94,6 +99,8 @@ REVIEWED_WRITES = {
     ("PATCH", r"^/api/columns/\{column_id\}$"),
     ("POST", r"^/api/boards/\{board_id\}/columns$"),
     ("POST", r"^/api/columns/\{column_id\}/cards$"),
+    ("POST", r"^/api/global-boards/\{global_board_id\}/cards$"),
+    ("PATCH", r"^/api/global-boards/\{global_board_id\}/cards/\{card_id\}$"),
 }
 REVIEWED_SIDE_EFFECT_GETS = {
     r"^/api/database/backup$",
@@ -119,6 +126,9 @@ def test_each_allowed_write_is_narrow(method: str, pattern: str) -> None:
     assert ".+" not in pattern, "must not use wildcards"
     assert not pattern.startswith(r"^/api/boards/\{board_id\}$"), "board-level write"
     assert pattern != "^/api/boards$", "creating boards is not allowed"
+    assert pattern != r"^/api/global-boards/\{global_board_id\}$", (
+        "global board settings"
+    )
 
 
 # --- configuration ----------------------------------------------------------------

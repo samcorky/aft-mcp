@@ -134,6 +134,48 @@ async def test_write_tool_sends_path_params_and_a_json_body(
     assert json.loads(request.content) == {"title": "Renamed"}
 
 
+async def test_promote_card_to_global_board(
+    client: Client[Any], fake_aft: FakeAft
+) -> None:
+    await client.call_tool(
+        "post_global_boards_cards", {"global_board_id": 3, "card_id": 5}
+    )
+
+    (request,) = fake_aft.requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/global-boards/3/cards"
+    assert json.loads(request.content) == {"card_id": 5}
+
+
+async def test_move_card_on_global_board(
+    client: Client[Any], fake_aft: FakeAft
+) -> None:
+    await client.call_tool(
+        "patch_global_boards_cards_by_card_id",
+        {"global_board_id": 3, "card_id": 5, "state": "done", "after_card_id": 7},
+    )
+
+    (request,) = fake_aft.requests
+    assert request.method == "PATCH"
+    assert request.url.path == "/api/global-boards/3/cards/5"
+    assert json.loads(request.content) == {"state": "done", "after_card_id": 7}
+
+
+@pytest.mark.parametrize(
+    "tool",
+    ["delete_global_boards_cards_by_card_id", "patch_global_boards_by_global_board_id"],
+)
+async def test_global_board_demote_and_settings_are_not_tools(
+    client: Client[Any], fake_aft: FakeAft, tool: str
+) -> None:
+    result = await client.call_tool(
+        tool, {"global_board_id": 3, "card_id": 5}, raise_on_error=False
+    )
+
+    assert result.is_error
+    assert fake_aft.requests == []
+
+
 async def test_excluded_tool_is_unknown_and_never_reaches_aft(
     client: Client[Any], fake_aft: FakeAft
 ) -> None:

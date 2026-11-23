@@ -26,7 +26,8 @@ OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://g
 - **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `server.py`): edit or move a
   card, set done status and assignees, archive/unarchive cards, add comments and checklist items, update checklist
   items, add cards and columns, rename or reorder columns, and promote cards to a global board and move them between
-  its states.
+  its states. Adding a card or column, and promoting a card, can't be undone through the server (deleting and
+  demoting are `DELETE`s), so remove a mistake in the AFT UI.
 - **Never exposed:** `DELETE` routes (including demoting a card from a global board), creating boards, and
   board-level or global-board settings (rename, owner, visibility, public link, import).
 

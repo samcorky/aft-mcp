@@ -27,6 +27,41 @@ def _op(**extra: Any) -> dict[str, Any]:
 CARD_ID = {"name": "card_id", "in": "path", "required": True, "type": "integer"}
 BOARD_ID = {"name": "board_id", "in": "path", "required": True, "type": "integer"}
 COLUMN_ID = {"name": "column_id", "in": "path", "required": True, "type": "integer"}
+GLOBAL_BOARD_ID = {
+    "name": "global_board_id",
+    "in": "path",
+    "required": True,
+    "type": "integer",
+}
+PROMOTE = {
+    "name": "body",
+    "in": "body",
+    "required": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "card_id": {"type": "integer"},
+            "state": {"type": "string", "enum": ["new", "in_progress", "waiting"]},
+        },
+        "required": ["card_id"],
+    },
+}
+MOVE = {
+    "name": "body",
+    "in": "body",
+    "required": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "state": {
+                "type": "string",
+                "enum": ["new", "in_progress", "waiting", "done"],
+            },
+            "after_card_id": {"type": "integer", "x-nullable": True},
+        },
+        "required": ["state"],
+    },
+}
 CARD_UPDATE = {
     "name": "body",
     "in": "body",
@@ -88,6 +123,21 @@ def aft_like_spec() -> dict[str, Any]:
             "/api/cards/{card_id}/comments": {
                 "parameters": [CARD_ID],
                 "post": _op(),
+            },
+            "/api/global-boards": {"get": _op()},
+            "/api/global-boards/{global_board_id}": {
+                "parameters": [GLOBAL_BOARD_ID],
+                "patch": _op(),  # global board settings: must not be exposed
+            },
+            "/api/global-boards/{global_board_id}/cards": {
+                "parameters": [GLOBAL_BOARD_ID],
+                "get": _op(),
+                "post": _op(parameters=[PROMOTE]),
+            },
+            "/api/global-boards/{global_board_id}/cards/{card_id}": {
+                "parameters": [GLOBAL_BOARD_ID, CARD_ID],
+                "patch": _op(parameters=[MOVE]),
+                "delete": _op(),  # demote: must not be exposed
             },
             "/api/database/backup": {"get": _op()},  # GET with a side effect
         },
