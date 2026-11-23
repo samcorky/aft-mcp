@@ -11,7 +11,9 @@ of the log. Over stdio, stderr is separate from the protocol stream, so the log 
 disturbs the client.
 """
 
+import json
 import logging
+import re
 import sys
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
@@ -38,12 +40,23 @@ async def record_status(response: httpx2.Response) -> None:
         statuses.append(response.status_code)
 
 
+# Tool and argument names come from the client. Anything other than a plain name is
+# logged JSON-quoted, so a newline or a fake "-> 200" can't forge a line.
+PLAIN_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
+
+
+def _safe_name(name: str) -> str:
+    return name if PLAIN_NAME.fullmatch(name) else json.dumps(name)
+
+
 def _is_id_number(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _is_id(name: str, value: object) -> bool:
     """Whether an argument is an id (``card_id=42``) or ids (``card_ids=[1, 2]``)."""
+    if not PLAIN_NAME.fullmatch(name):
+        return False
     if name.endswith("_id"):
         return _is_id_number(value)
     return (
@@ -78,7 +91,7 @@ def describe(
     else:
         outcome = "error, no request sent" if failed else "no request sent"
     started = context.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
-    return " ".join([started, context.message.name, *ids, "->", outcome])
+    return " ".join([started, _safe_name(context.message.name), *ids, "->", outcome])
 
 
 class AuditLog(Middleware):

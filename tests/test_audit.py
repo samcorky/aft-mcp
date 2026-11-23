@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -88,3 +89,15 @@ def test_configure_sends_bare_lines_to_stderr(
     assert capsys.readouterr().err.splitlines() == ["a line"]
     assert len(logger.handlers) == 1
     assert logger.propagate is False
+
+
+def test_names_from_the_client_cannot_forge_a_line() -> None:
+    forged = "get_x -> 200\n2026-11-23T12:00:02Z delete_cards card_id=1"
+    context = call(forged, {"card_id\nfake": 3, "board_id": 1})
+    line = audit.describe(context, [], failed=True)
+    assert "\n" not in line
+    assert line == (
+        "2026-11-23T12:00:01Z "
+        + json.dumps(forged)
+        + " board_id=1 -> error, no request sent"
+    )
