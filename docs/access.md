@@ -43,8 +43,9 @@ every request a tool sends, before it reaches AFT:
 - `get_boards` lists only the listed boards, and card search searches only them.
 - A few tools that are not about a board keep working: the user's own profile and roles, the permission model, and
   the server's version, health, timezone and branding.
-- Every other tool is refused, because the server can't tell which boards it would reach. That includes global boards,
-  schedules, notifications and public board links, and any endpoint AFT adds later.
+- Every other tool is refused, because the server can't tell which boards it would reach. That includes global boards
+  (so promoting a card to one is refused too), schedules, notifications and public board links, and any endpoint AFT
+  adds later.
 
 To check an id, the server makes extra read requests as the same user: it reads each listed board's cards (once, and
 again when it meets a column or checklist item it doesn't know) and reads a card before acting on it. Unset

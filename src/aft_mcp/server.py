@@ -157,6 +157,11 @@ ALLOWED_WRITES: list[tuple[HttpMethod, str]] = [
     # Add a column or a card. There is no MCP delete to undo these.
     ("POST", r"^/api/boards/\{board_id\}/columns$"),
     ("POST", r"^/api/columns/\{column_id\}/cards$"),
+    # Global board: promote a card, and move it between states ("done" ticks the card
+    # done). Both need card.update on the card's own board. Demoting is a DELETE, so a
+    # promote cannot be undone through MCP; global board settings stay excluded.
+    ("POST", r"^/api/global-boards/\{global_board_id\}/cards$"),
+    ("PATCH", r"^/api/global-boards/\{global_board_id\}/cards/\{card_id\}$"),
 ]
 
 
