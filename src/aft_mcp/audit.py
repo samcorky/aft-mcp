@@ -79,6 +79,33 @@ def _is_id(name: str, value: object) -> bool:
     )
 
 
+# Caps on what a client can put in a log line, so no record grows too big to send
+# (a syslog datagram has a size limit) or to read.
+MAX_TOOL_NAME = 128
+MAX_ID_ARGUMENTS = 20
+MAX_IDS_PER_LIST = 20
+
+
+def _capped_ids(arguments: dict[str, Any]) -> dict[str, Any]:
+    """The id arguments, at most ``MAX_ID_ARGUMENTS`` of them, lists cut short.
+
+    A cut list keeps its first ``MAX_IDS_PER_LIST`` ids and adds ``<name>_count``
+    with the full length.
+    """
+    ids: dict[str, Any] = {}
+    for name, value in sorted(arguments.items()):
+        if len(ids) >= MAX_ID_ARGUMENTS:
+            break
+        if not _is_id(name, value):
+            continue
+        if isinstance(value, list) and len(value) > MAX_IDS_PER_LIST:
+            ids[name] = value[:MAX_IDS_PER_LIST]
+            ids[f"{name}_count"] = len(value)
+        else:
+            ids[name] = value
+    return ids
+
+
 def call_fields(context: MiddlewareContext[mt.CallToolRequestParams]) -> dict[str, Any]:
     """The fields bound for one tool call: a call id, the tool and its id arguments.
 
@@ -86,10 +113,10 @@ def call_fields(context: MiddlewareContext[mt.CallToolRequestParams]) -> dict[st
     ``call`` or ``tool``.
     """
     arguments: dict[str, Any] = context.message.arguments or {}
-    ids = {
-        name: value for name, value in sorted(arguments.items()) if _is_id(name, value)
-    }
-    return {"call": secrets.token_hex(4), "tool": context.message.name, **ids}
+    tool = context.message.name
+    if len(tool) > MAX_TOOL_NAME:
+        tool = tool[:MAX_TOOL_NAME] + "..."
+    return {"call": secrets.token_hex(4), "tool": tool, **_capped_ids(arguments)}
 
 
 class AuditLog(Middleware):
@@ -135,6 +162,22 @@ class LoggingError(RuntimeError):
 
 
 SYSLOG_IDENT = "aft-mcp: "
+# Longer messages are cut, so a long traceback still fits in one datagram.
+MAX_SYSLOG_MESSAGE = 8192
+TRUNCATED = " ...[truncated]"
+
+
+class CappedSysLogHandler(logging.handlers.SysLogHandler):
+    """A SysLogHandler that cuts long messages instead of failing to send them."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format as usual, then cut to ``MAX_SYSLOG_MESSAGE`` characters."""
+        message = super().format(record)
+        if len(message) > MAX_SYSLOG_MESSAGE:
+            return message[: MAX_SYSLOG_MESSAGE - len(TRUNCATED)] + TRUNCATED
+        return message
+
+
 DEFAULT_SYSLOG_ADDRESS = "/dev/log"
 
 
@@ -148,7 +191,7 @@ def _syslog_handler(facility: str, address: str) -> logging.Handler:
         if not stat.S_ISSOCK(os.stat(address).st_mode):
             msg = f"can't log to syslog at {address}: not a socket"
             raise LoggingError(msg)
-        handler = logging.handlers.SysLogHandler(
+        handler = CappedSysLogHandler(
             address=address,
             facility=logging.handlers.SysLogHandler.facility_names[facility],
         )

@@ -310,3 +310,28 @@ def test_a_syslog_address_that_is_not_a_socket_is_an_error(tmp_path: Path) -> No
         audit.configure_logging(
             "logfmt", syslog_facility="user", syslog_address=str(not_a_socket)
         )
+
+
+def test_the_fields_a_client_controls_are_capped() -> None:
+    arguments: dict[str, Any] = {f"a{n:02}_id": n for n in range(30)}
+    arguments["card_ids"] = list(range(100))
+    fields = audit.call_fields(call("x" * 500, arguments))
+    assert fields["tool"] == "x" * audit.MAX_TOOL_NAME + "..."
+    ids = {k: v for k, v in fields.items() if k not in {"call", "tool"}}
+    assert len([k for k in ids if not k.endswith("_count")]) == audit.MAX_ID_ARGUMENTS
+    capped = audit.call_fields(call("get_x", {"card_ids": list(range(100))}))
+    assert capped["card_ids"] == list(range(audit.MAX_IDS_PER_LIST))
+    assert capped["card_ids_count"] == 100
+
+
+def test_a_long_syslog_message_is_cut_not_lost(
+    syslog_socket: tuple[str, socket.socket],
+) -> None:
+    path, sock = syslog_socket
+    audit.configure_logging(
+        "logfmt", io.StringIO(), syslog_facility="user", syslog_address=path
+    )
+    logging.getLogger("fastmcp").error("x" * 100_000)
+    message = sock.recv(200_000).decode()
+    assert message.rstrip("\x00").endswith(audit.TRUNCATED)
+    assert len(message) < audit.MAX_SYSLOG_MESSAGE + 100
