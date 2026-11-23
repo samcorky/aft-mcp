@@ -28,6 +28,8 @@ OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://g
   items, add cards and columns, and rename or reorder columns.
 - **Read-only mode:** with `AFT_READ_ONLY=true` no writes are exposed at all, only the reads above. Use it for a
   look-only connection, such as a second instance against a production AFT.
+- **Board allowlist:** with `AFT_BOARD_IDS=12,15` the tools only reach those boards. See
+  [Limiting the boards](#limiting-the-boards).
 - **Never exposed:** `DELETE` routes, creating boards, and board-level changes (rename, owner,
   public link, import).
 
@@ -61,6 +63,7 @@ shown in reprs, logs or errors.
 | `AFT_PASSWORD`  | yes      | AFT account password                                                   |
 | `AFT_SPEC_FILE` | no       | Load the spec from a local file instead of `AFT_SPEC_URL`              |
 | `AFT_READ_ONLY` | no       | `true` to expose only the safe reads, no writes (default `false`)      |
+| `AFT_BOARD_IDS` | no       | Comma-separated board ids the tools may reach (default: every board)    |
 | `AFT_ENV_FILE`  | no       | Path of the `.env` file to read, instead of `./.env` (environment only) |
 
 \* Not needed when `AFT_SPEC_FILE` is set.
@@ -76,8 +79,8 @@ password in `.env`.
   lowest role that does the job: a read-only role for boards it should only look at, an edit role for boards where it
   should make changes. It then cannot see or touch anything else, whatever tools the MCP server exposes.
 - **Why not rely on the server alone?** This server's allowlist (see [What is exposed](#what-is-exposed)) limits which
-  *kinds* of action are possible. AFT's own permissions limit *which boards* they apply to. Use both. The server cannot
-  restrict by board.
+  *kinds* of action are possible. AFT's own permissions limit *which boards* they apply to. Use both, and set
+  `AFT_BOARD_IDS` as a second check on the boards (see below).
 - **Attribution.** Comments, edits and assignments made through the MCP are recorded against that user, so you can
   tell the agent's work from yours. It can also be assigned cards.
 - **Revocation.** If the credentials leak or the agent misbehaves, disable that one user without affecting your own
@@ -85,6 +88,22 @@ password in `.env`.
 
 The tools only work where the user has permission. A write on a board where it has read-only access is refused by AFT
 with a 403. `get_roles_my_roles` and `get_permissions_mapping` show what the user can currently do.
+
+### Limiting the boards
+
+`AFT_BOARD_IDS=12,15` guards against an AFT role granted too widely by mistake. When it is set, the server checks every
+request a tool sends, before it reaches AFT:
+
+- A request naming a board, column, card or checklist item (in the path, or as `board_id`, `column_id`, `card_id` or
+  `card_ids` in the body) is sent only if that item is on a listed board. Otherwise the tool fails with a 403 that
+  names `AFT_BOARD_IDS`, and AFT never sees the request. Moving a card to a column on another board is refused too.
+- `get_boards` lists only the listed boards, and card search searches only them.
+- Global boards, schedules and public board links span boards, so their tools are refused.
+- Tools that are not about a board, such as the user's profile, roles and notifications, work as before.
+
+To check an id, the server makes extra read requests as the same user: it reads each listed board's cards (once, and
+again when it meets a column or checklist item it doesn't know) and reads a card before acting on it. Unset
+`AFT_BOARD_IDS` to allow every board the AFT user can reach.
 
 ## Running
 

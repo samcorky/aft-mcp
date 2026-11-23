@@ -8,10 +8,18 @@ the error names every bad setting at once.
 
 import os
 from pathlib import Path
-from typing import Self
+from typing import Annotated, Self
 
-from pydantic import Field, HttpUrl, SecretStr, ValidationError, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import (
+    Field,
+    HttpUrl,
+    PositiveInt,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_PREFIX = "AFT_"
 # Names the .env file to read; it is not a field, so set it in the environment.
@@ -46,6 +54,15 @@ class Settings(BaseSettings):
     password: SecretStr = Field(min_length=1)
     # Optional switches: unset means off, the behaviour before they existed.
     read_only: bool = False
+    # Comma-separated, e.g. AFT_BOARD_IDS=12,15; unset allows every board.
+    board_ids: Annotated[frozenset[PositiveInt] | None, NoDecode] = None
+
+    @field_validator("board_ids", mode="before")
+    @classmethod
+    def _split_board_ids(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return value
 
     @model_validator(mode="after")
     def _needs_a_spec(self) -> Self:

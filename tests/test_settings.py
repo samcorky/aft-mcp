@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from aft_mcp import settings as settings_module
-from aft_mcp.settings import SettingsError, load_settings
+from aft_mcp.settings import Settings, SettingsError, load_settings
 
 ALL_SETTINGS = [
     "AFT_BASE_URL",
@@ -14,6 +14,7 @@ ALL_SETTINGS = [
     "AFT_PASSWORD",
     "AFT_ENV_FILE",
     "AFT_READ_ONLY",
+    "AFT_BOARD_IDS",
 ]
 
 
@@ -147,6 +148,37 @@ def test_read_only_rejects_anything_else(
     monkeypatch.setenv("AFT_READ_ONLY", "maybe")
     (problem,) = problems()
     assert problem.startswith("AFT_READ_ONLY: ")
+
+
+def test_board_ids_allow_every_board_unless_set(aft_env: dict[str, str]) -> None:
+    assert load_settings(env_file=None).board_ids is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [("12", {12}), ("12,15", {12, 15}), (" 12 , 15, ", {12, 15})]
+)
+def test_board_ids_are_a_comma_separated_list(
+    monkeypatch: pytest.MonkeyPatch,
+    aft_env: dict[str, str],
+    value: str,
+    expected: set[int],
+) -> None:
+    monkeypatch.setenv("AFT_BOARD_IDS", value)
+    assert load_settings(env_file=None).board_ids == frozenset(expected)
+
+
+@pytest.mark.parametrize("value", ["twelve", "12;15", "0", "-3"])
+def test_board_ids_must_be_positive_numbers(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], value: str
+) -> None:
+    monkeypatch.setenv("AFT_BOARD_IDS", value)
+    (problem,) = problems()
+    assert problem.startswith("AFT_BOARD_IDS: ")
+
+
+def test_board_ids_can_be_given_as_a_set(aft_env: dict[str, str]) -> None:
+    loaded = Settings(_env_file=None, board_ids=frozenset({12}))
+    assert loaded.board_ids == frozenset({12})
 
 
 def test_the_password_never_appears_in_output(

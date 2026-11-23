@@ -167,6 +167,36 @@ async def test_read_only_server_lists_no_writes_and_refuses_them(
     assert fake_aft.requests == []
 
 
+async def test_board_allowlist_refuses_a_tool_call_for_another_board(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    settings: Settings,
+    aft_like_spec: dict[str, Any],
+    fake_aft: FakeAft,
+) -> None:
+    spec_file = tmp_path / "spec.json"
+    spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
+    real_build_client = server.build_client
+    transport = httpx2.MockTransport(fake_aft)
+    monkeypatch.setattr(
+        server, "build_client", lambda given: real_build_client(given, transport)
+    )
+    allowlisted = settings.model_copy(
+        update={"spec_file": spec_file, "board_ids": frozenset({12})}
+    )
+
+    async with Client(server.create_server(allowlisted)) as connected:
+        allowed = await connected.call_tool("get_boards_by_board_id", {"board_id": 12})
+        refused = await connected.call_tool(
+            "get_boards_by_board_id", {"board_id": 99}, raise_on_error=False
+        )
+
+    assert not allowed.is_error
+    assert refused.is_error
+    assert "AFT_BOARD_IDS" in str(refused.content[0])
+    assert [r.url.path for r in fake_aft.requests] == ["/api/boards/12"]
+
+
 async def test_excluded_tool_is_unknown_and_never_reaches_aft(
     client: Client[Any], fake_aft: FakeAft
 ) -> None:

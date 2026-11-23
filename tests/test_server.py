@@ -9,6 +9,7 @@ import pytest
 from fastmcp import FastMCP
 
 from aft_mcp import server
+from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import Settings, SettingsError
 from aft_mcp.swagger_convert import convert
 
@@ -157,6 +158,14 @@ def test_build_client_uses_the_settings(settings: Settings) -> None:
     request = client.build_request("GET", "/api/boards")
     auth_flow = client._build_request_auth(request).auth_flow(request)
     assert next(auth_flow).headers["Authorization"].startswith("Basic ")
+
+
+def test_build_client_guards_the_boards_when_board_ids_is_set(
+    settings: Settings,
+) -> None:
+    assert not isinstance(server.build_client(settings)._transport, BoardGuard)
+    guarded = settings.model_copy(update={"board_ids": frozenset({12})})
+    assert isinstance(server.build_client(guarded)._transport, BoardGuard)
 
 
 # --- loading the spec -------------------------------------------------------------

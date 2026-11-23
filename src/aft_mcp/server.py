@@ -7,6 +7,7 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
 from aft_mcp import __version__
+from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import Settings, SettingsError, env_file_path, load_settings
 from aft_mcp.swagger_convert import JSON, convert
 
@@ -50,6 +51,10 @@ def build_client(
         settings: The server settings.
         transport: Replaces the network transport; the tests pass a mock here.
     """
+    if settings.board_ids:
+        transport = BoardGuard(
+            transport or httpx2.AsyncHTTPTransport(), settings.board_ids
+        )
     return httpx2.AsyncClient(
         base_url=str(settings.base_url),
         timeout=settings.timeout,
