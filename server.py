@@ -88,12 +88,21 @@ ALLOWED_WRITES: list[tuple[HttpMethod, str]] = [
     ("POST", r"^/api/cards/\{card_id\}/checklist-items$"),
     ("PATCH", r"^/api/checklist-items/\{item_id\}$"),
     ("PATCH", r"^/api/columns/\{column_id\}$"),  # rename / reorder
-    ("POST", r"^/api/boards/\{board_id\}/columns$"),  # add a column (no MCP delete to undo it)
-    ("POST", r"^/api/columns/\{column_id\}/cards$"),  # add a card (no MCP delete to undo it)
+    (
+        "POST",
+        r"^/api/boards/\{board_id\}/columns$",
+    ),  # add a column (no MCP delete to undo it)
+    (
+        "POST",
+        r"^/api/columns/\{column_id\}/cards$",
+    ),  # add a card (no MCP delete to undo it)
     # Global board: promote a card and move it between states. Both need card.update on the
     # card's own board. Demoting is a DELETE, and global board settings stay excluded.
     ("POST", r"^/api/global-boards/\{global_board_id\}/cards$"),
-    ("PATCH", r"^/api/global-boards/\{global_board_id\}/cards/\{card_id\}$"),  # "done" ticks the card done
+    (
+        "PATCH",
+        r"^/api/global-boards/\{global_board_id\}/cards/\{card_id\}$",
+    ),  # "done" ticks the card done
 ]
 
 
