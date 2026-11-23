@@ -81,7 +81,7 @@ def test_needed_settings_are_set_and_optional_ones_commented() -> None:
 def test_the_reference_describes_each_variable() -> None:
     """Types, defaults and allowed values are spelled out in the table."""
     doc = reference_files()[SETTINGS_DOC_PATH]
-    assert "| `AFT_MCP_TIMEOUT` | yes | number | none | more than 0 |" in doc
+    assert "| `AFT_MCP_TIMEOUT` | no | number | `30` | more than 0 |" in doc
     assert "| `AFT_MCP_READ_ONLY` | no | true or false | `false` | any |" in doc
     assert "comma-separated list of whole numbers | unset | each more than 0" in doc
     assert "| `AFT_MCP_TOKEN` | no | secret | unset | not empty |" in doc

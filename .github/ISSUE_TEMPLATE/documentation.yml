@@ -10,7 +10,7 @@ body:
     attributes:
       label: Where
       description: The file and section, or a link.
-      placeholder: e.g. README.md, "Connecting to Claude and agents"
+      placeholder: e.g. docs/clients.md, "Claude Desktop"
     validations:
       required: true
 

@@ -32,8 +32,8 @@ these are in scope:
 - The spec loader or the converter being made to do something unsafe by a malicious or
   malformed API spec.
 
-Out of scope: what the AFT user is allowed to do in AFT itself. The README recommends a
-dedicated, board-scoped user for exactly this reason.
+Out of scope: what the AFT user is allowed to do in AFT itself. [Access and auditing](docs/access.md)
+recommends a dedicated, board-scoped user for exactly this reason.
 
 ## What to include
 
