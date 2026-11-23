@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,13 +12,12 @@ from aft_mcp import __version__
 from aft_mcp.audit import AuditLog, LoggingError, configure_logging, log_response
 from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import (
-    ENV_FILE_VARIABLE,
     NO_SIGN_IN,
+    SessionSettings,
     Settings,
     SettingsError,
-    env_file_path,
+    load_paths,
     load_settings,
-    secrets_dir_path,
     url_origin,
     url_scheme,
 )
@@ -66,13 +64,14 @@ def load_spec_from_url(url: str, timeout: float, *, allow_insecure: bool) -> JSO
 
 def load_spec(settings: Settings) -> JSON:
     """Load the spec as OpenAPI 3: from the spec file if set, else over HTTP."""
-    if settings.spec_file is not None:
-        spec = load_spec_from_file(settings.spec_file)
+    connection = settings.connection
+    if connection.spec_file is not None:
+        spec = load_spec_from_file(connection.spec_file)
     else:
         spec = load_spec_from_url(
-            settings.spec_location,
-            settings.timeout,
-            allow_insecure=settings.allow_insecure,
+            connection.spec_location,
+            connection.timeout,
+            allow_insecure=connection.allow_insecure,
         )
     return convert(spec)
 
@@ -97,13 +96,14 @@ class BearerAuth(httpx2.Auth):
 
 def build_auth(settings: Settings) -> httpx2.Auth:
     """The API token if one is set, otherwise HTTP Basic auth."""
-    if settings.token is not None:
-        return BearerAuth(settings.token)
-    if settings.username is None or settings.password is None:
+    auth = settings.auth
+    if auth.token is not None:
+        return BearerAuth(auth.token)
+    if auth.username is None or auth.password is None:
         # Settings validation rules this out; checked again so it can never send
         # an empty password.
         raise SettingsError([NO_SIGN_IN])
-    return httpx2.BasicAuth(settings.username, settings.password.get_secret_value())
+    return httpx2.BasicAuth(auth.username, auth.password.get_secret_value())
 
 
 def build_client(
@@ -116,13 +116,14 @@ def build_client(
         settings: The server settings.
         transport: Replaces the network transport; the tests pass a mock here.
     """
-    if settings.board_ids:
+    if settings.tools.board_ids:
         transport = BoardGuard(
-            transport or httpx2.AsyncHTTPTransport(), settings.board_ids
+            transport or httpx2.AsyncHTTPTransport(),
+            frozenset(settings.tools.board_ids),
         )
     return httpx2.AsyncClient(
-        base_url=str(settings.base_url),
-        timeout=settings.timeout,
+        base_url=str(settings.connection.base_url),
+        timeout=settings.connection.timeout,
         auth=build_auth(settings),
         transport=transport,
         event_hooks={"response": [log_response]},
@@ -182,14 +183,15 @@ def build_route_maps(*, read_only: bool) -> list[RouteMap]:
 
 def server_identity(settings: Settings) -> tuple[str, str | None]:
     """The server's name and instructions, naming the instance when one is set."""
-    if settings.instance is None:
+    instance = settings.tools.instance
+    if instance is None:
         return "AFT", None
     instructions = (
-        f"These tools are connected to the AFT instance named {settings.instance!r}. "
+        f"These tools are connected to the AFT instance named {instance!r}. "
         + "Every change they make happens there, so check that this is the "
         + "instance you mean before changing anything."
     )
-    return f"AFT ({settings.instance})", instructions
+    return f"AFT ({instance})", instructions
 
 
 def create_server(settings: Settings) -> FastMCP:
@@ -201,7 +203,7 @@ def create_server(settings: Settings) -> FastMCP:
         name=name,
         instructions=instructions,
         version=__version__,
-        route_maps=build_route_maps(read_only=settings.read_only),
+        route_maps=build_route_maps(read_only=settings.tools.read_only),
     )
     mcp.add_middleware(AuditLog())
     return mcp
@@ -217,41 +219,36 @@ def warn_about_working_directory_env(env_file: Path) -> None:
     if local.is_file() and local.resolve() != env_file.resolve():
         print(
             "aft-mcp: ignoring .env in the working directory; settings are read "
-            + f"from {env_file} (set {ENV_FILE_VARIABLE} to use another file)",
+            + f"from {env_file} (set AFT_MCP_ENV_FILE to use another file)",
             file=sys.stderr,
         )
-
-
-def ssh_client_address() -> str | None:
-    """``ip:port`` of the SSH client, when the server runs in an SSH session."""
-    fields = os.environ.get("SSH_CONNECTION", "").split()
-    return f"{fields[0]}:{fields[1]}" if len(fields) >= 2 else None
 
 
 def main() -> None:
     """Load the settings, build the server and serve it over stdio."""
     try:
-        env_file = env_file_path()
-        settings = load_settings(env_file, secrets_dir_path())
+        paths = load_paths()
+        env_file = paths.env_file_path
+        settings = load_settings(env_file, paths.secrets_dir_path)
     except SettingsError as error:
         sys.exit(str(error))  # exits with status 1, the message on stderr
     warn_about_working_directory_env(env_file)
     try:
         configure_logging(
-            settings.log_format,
-            to_stream=settings.log_stderr,
+            settings.log.format,
+            to_stream=settings.log.stderr,
             syslog_facility=(
-                settings.log_syslog_facility if settings.log_syslog else None
+                settings.log.syslog_facility if settings.log.syslog else None
             ),
         )
     except LoggingError as error:
         sys.exit(f"aft-mcp: {error}")
-    if ssh_client := ssh_client_address():
+    if ssh_client := SessionSettings().ssh_client:
         structlog.contextvars.bind_contextvars(ssh_client=ssh_client)
-    if settings.instance is not None:
+    if settings.tools.instance is not None:
         # Adds the field to every log line for the life of the process.
-        structlog.contextvars.bind_contextvars(instance=settings.instance)
-    for name in settings.insecure_urls:
+        structlog.contextvars.bind_contextvars(instance=settings.tools.instance)
+    for name in settings.connection.insecure_urls:
         log.warning("insecure_url", setting=name, note="credentials sent unencrypted")
     try:
         mcp = create_server(settings)

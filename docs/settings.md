@@ -4,20 +4,37 @@
 
 Every setting is an environment variable. The server reads the process environment first, then a `.env` file: the one named by `AFT_MCP_ENV_FILE` (set in the environment), or else `aft-mcp/.env` in your config directory: `$XDG_CONFIG_HOME` or `~/.config` on Linux and macOS, `%APPDATA%` on Windows. The working directory is never read. Last come secret files: in the directory named by `AFT_MCP_SECRETS_DIR` (or systemd's `CREDENTIALS_DIRECTORY`), a file named after a variable, such as `AFT_MCP_TOKEN`, holds its value. A variable already in the environment wins, and an empty value counts as unset. [`.env.example`](../.env.example) is a starting point to copy. A missing or invalid setting stops the server, and the error lists every bad setting at once.
 
+## Connecting to AFT
+
 | Variable | Required | Type | Default | Allowed values | Description |
 | --- | --- | --- | --- | --- | --- |
 | `AFT_MCP_BASE_URL` | yes | URL | none | `http://` or `https://` | Base URL the generated tools call. It must use https unless `AFT_MCP_ALLOW_INSECURE` is set. Example: `https://aft.example.com`. |
 | `AFT_MCP_SPEC_URL` | no | URL | unset | `http://` or `https://` | URL of AFT's Swagger 2.0 or OpenAPI spec, which the tools are built from. Unset, it is `api/apispec.json` under `AFT_MCP_BASE_URL`. It must be on the same host and port as `AFT_MCP_BASE_URL`, and so must any redirect it follows. Example: `https://aft.example.com/api/apispec.json`. |
 | `AFT_MCP_SPEC_FILE` | no | path | unset | any | Load the spec from this local file instead of `AFT_MCP_SPEC_URL`. |
 | `AFT_MCP_TIMEOUT` | no | number | `30` | more than 0 | Request timeout in seconds, for the spec and every tool call. |
+| `AFT_MCP_ALLOW_INSECURE` | no | true or false | `false` | any | Allow `http://` for `AFT_MCP_BASE_URL` and `AFT_MCP_SPEC_URL`, for an AFT on a trusted network or VPN. The credentials are then sent unencrypted, and the server warns about it on every start. |
+
+## Signing in
+
+| Variable | Required | Type | Default | Allowed values | Description |
+| --- | --- | --- | --- | --- | --- |
 | `AFT_MCP_TOKEN` | no | secret | unset | not empty | AFT API token, sent as `Authorization: Bearer` (recommended). Create it on an API-only user; set this, or both `AFT_MCP_USERNAME` and `AFT_MCP_PASSWORD`. It is never shown in reprs, logs or errors. |
 | `AFT_MCP_USERNAME` | no | text | unset | not empty | AFT account email or username, sent as HTTP basic auth, for AFT versions without API tokens. Needs `AFT_MCP_PASSWORD`; not with `AFT_MCP_TOKEN`. Use a dedicated user for the agent, not your own account. Example: `agent@example.com`. |
 | `AFT_MCP_PASSWORD` | no | secret | unset | not empty | Password of the `AFT_MCP_USERNAME` account. It is never shown in reprs, logs or errors. |
-| `AFT_MCP_INSTANCE` | no | text | unset | any | A short name for this AFT instance, such as `prod` or `test`. It is added to the server's name and instructions, so the agent knows which instance it is changing, and to every log line. Example: `prod`. |
-| `AFT_MCP_ALLOW_INSECURE` | no | true or false | `false` | any | Allow `http://` for `AFT_MCP_BASE_URL` and `AFT_MCP_SPEC_URL`, for an AFT on a trusted network or VPN. The credentials are then sent unencrypted, and the server warns about it on every start. |
+
+## What the tools may do
+
+| Variable | Required | Type | Default | Allowed values | Description |
+| --- | --- | --- | --- | --- | --- |
 | `AFT_MCP_READ_ONLY` | no | true or false | `false` | any | Expose only the safe reads, so no tool can change anything. |
 | `AFT_MCP_BOARD_IDS` | no | comma-separated list of whole numbers | unset | each more than 0 | Only let the tools reach these boards; unset allows every board the AFT user can see. Example: `12,15`. |
-| `AFT_MCP_LOG_FORMAT` | no | text | `logfmt` | `logfmt` or `json` | How the log on stderr is written: logfmt lines, or one JSON object per line for log pipelines. |
+| `AFT_MCP_INSTANCE` | no | text | unset | any | A short name for this AFT instance, such as `prod` or `test`. It is added to the server's name and instructions, so the agent knows which instance it is changing, and to every log line. Example: `prod`. |
+
+## Logging
+
+| Variable | Required | Type | Default | Allowed values | Description |
+| --- | --- | --- | --- | --- | --- |
+| `AFT_MCP_LOG_FORMAT` | no | text | `logfmt` | `logfmt` or `json` | How the log is written: logfmt lines, or one JSON object per line for log pipelines. |
 | `AFT_MCP_LOG_STDERR` | no | true or false | `true` | any | Write the log to stderr. Over SSH, stderr goes back to the client, so a server can set this to false and keep the log in syslog instead. |
 | `AFT_MCP_LOG_SYSLOG` | no | true or false | `false` | any | Also send the log to the local syslog (`/dev/log`), so a server keeps the audit trail itself. A missing socket stops the server. |
 | `AFT_MCP_LOG_SYSLOG_FACILITY` | no | text | `user` | `user` or `auth` or `authpriv` or `daemon` or `local0` or `local1` or `local2` or `local3` or `local4` or `local5` or `local6` or `local7` | Syslog facility for the log; `auth` or `authpriv` puts it next to sshd's lines. |

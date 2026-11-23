@@ -22,6 +22,7 @@ from pydantic import SecretStr
 
 import aft_mcp
 from aft_mcp import server
+from tests.support import changed
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
@@ -79,7 +80,7 @@ async def client(
     monkeypatch.setattr(
         server, "build_client", lambda given: real_build_client(given, transport)
     )
-    from_file = settings.model_copy(update={"spec_file": spec_file, **sign_in})
+    from_file = changed(settings, {"spec_file": spec_file, **sign_in})
 
     async with Client(server.create_server(from_file)) as connected:
         yield connected
@@ -179,7 +180,7 @@ async def test_read_only_server_lists_no_writes_and_refuses_them(
     monkeypatch.setattr(
         server, "build_client", lambda given: real_build_client(given, transport)
     )
-    read_only = settings.model_copy(update={"spec_file": spec_file, "read_only": True})
+    read_only = changed(settings, {"spec_file": spec_file, "read_only": True})
 
     async with Client(server.create_server(read_only)) as connected:
         names = {tool.name for tool in await connected.list_tools()}
@@ -207,8 +208,8 @@ async def test_board_allowlist_refuses_a_tool_call_for_another_board(
     monkeypatch.setattr(
         server, "build_client", lambda given: real_build_client(given, transport)
     )
-    allowlisted = settings.model_copy(
-        update={"spec_file": spec_file, "board_ids": frozenset({12})}
+    allowlisted = changed(
+        settings, {"spec_file": spec_file, "board_ids": frozenset({12})}
     )
 
     async with Client(server.create_server(allowlisted)) as connected:

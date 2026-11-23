@@ -60,8 +60,13 @@ A `.env` in the checkout is not read.
 
 Run `uv run poe` to list every task.
 
-`.env.example` and `docs/settings.md` are generated from the `Settings` class in
-`src/aft_mcp/settings.py` by `scripts/settings_reference.py`, using each field's
+Settings are grouped as in menagerist: one class per group in `src/aft_mcp/settings.py`
+(`ConnectionSettings`, `AuthSettings`, `ToolSettings`, `LogSettings`, listed in `GROUPS`),
+on a base class that holds the `AFT_MCP_` prefix (`group="log"` gives `AFT_MCP_LOG_`) and
+records where each value came from (`_tracking.py`, ported from menagerist). A standard
+variable such as `SSH_CONNECTION` is read through `validation_alias` on the same base class.
+`.env.example` and `docs/settings.md` are generated from the groups by
+`scripts/settings_reference.py`, one section per group, using each field's
 description and example. After adding or changing a setting, run
 `uv run poe settings-docs`. CI and a pre-commit hook (`uv run poe settings-docs-check`)
 fail while either file is out of date.

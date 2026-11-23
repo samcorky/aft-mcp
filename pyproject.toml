@@ -11,7 +11,6 @@ dependencies = [
     "fastmcp>=4.1.4",
     "httpx2>=0.28.1",
     "pydantic-settings>=2.16.2",
-    "python-dotenv>=1.2.1",
     "structlog>=25.5.0",
 ]
 
@@ -76,8 +75,9 @@ build-check = { sequence = ["build", "_test-wheel", "_test-sdist"], help = "Buil
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# scripts/ holds tools, not the package; the tests import them by module name.
-pythonpath = ["scripts"]
+# scripts/ holds tools, not the package; the tests import them by module name. The
+# root lets tests import helpers as tests.support.
+pythonpath = ["scripts", "."]
 markers = [
     "e2e: launches the server as a subprocess over stdio (slower; skipped on pre-push)",
 ]

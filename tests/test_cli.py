@@ -202,7 +202,7 @@ def test_settings_shows_values_and_sources_with_secrets_masked(
     rows = {line.split()[0]: line.split()[1:] for line in out.splitlines()}
     assert rows["AFT_MCP_BASE_URL"] == ["https://aft.test/", "environment"]
     assert rows["AFT_MCP_INSTANCE"] == ["prod", str(env_file)]
-    assert rows["AFT_MCP_BOARD_IDS"] == ["12,15", str(env_file)]
+    assert rows["AFT_MCP_BOARD_IDS"] == ["15,12", str(env_file)]
     assert rows["AFT_MCP_READ_ONLY"] == ["True", str(secrets / "AFT_MCP_READ_ONLY")]
     assert rows["AFT_MCP_PASSWORD"] == [cli.MASK, "environment"]
     assert rows["AFT_MCP_TOKEN"] == ["unset", "default"]

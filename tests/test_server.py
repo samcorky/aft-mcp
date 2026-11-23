@@ -14,6 +14,7 @@ from aft_mcp.audit import LoggingError
 from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import Settings, SettingsError
 from aft_mcp.swagger_convert import convert
+from tests.support import changed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -90,7 +91,7 @@ def test_create_server_honours_read_only(
     aft_like_spec: dict[str, Any],
 ) -> None:
     stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
-    mcp = server.create_server(settings.model_copy(update={"read_only": True}))
+    mcp = server.create_server(changed(settings, {"read_only": True}))
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert names
     assert all(name.startswith("get_") for name in names)
@@ -167,17 +168,18 @@ def test_build_client_guards_the_boards_when_board_ids_is_set(
     settings: Settings,
 ) -> None:
     assert not isinstance(server.build_client(settings)._transport, BoardGuard)
-    guarded = settings.model_copy(update={"board_ids": frozenset({12})})
+    guarded = changed(settings, {"board_ids": frozenset({12})})
     assert isinstance(server.build_client(guarded)._transport, BoardGuard)
 
 
 def test_build_client_sends_a_token_as_bearer(settings: Settings) -> None:
-    with_token = settings.model_copy(
-        update={
+    with_token = changed(
+        settings,
+        {
             "token": SecretStr("aft_token_value"),
             "username": None,
             "password": None,
-        }
+        },
     )
     client = server.build_client(with_token)
     request = client.build_request("GET", "/api/boards")
@@ -190,7 +192,7 @@ def test_build_client_sends_a_token_as_bearer(settings: Settings) -> None:
 
 
 def test_build_auth_never_sends_a_missing_password(settings: Settings) -> None:
-    incomplete = settings.model_copy(update={"password": None})
+    incomplete = changed(settings, {"password": None})
     with pytest.raises(SettingsError):
         server.build_auth(incomplete)
 
@@ -277,7 +279,7 @@ def test_load_spec_prefers_the_file(
     path = tmp_path / "spec.json"
     path.write_text(json.dumps(aft_like_spec), encoding="utf-8")
     seen = stub_http(monkeypatch, lambda _: httpx2.Response(500))
-    from_file = settings.model_copy(update={"spec_file": path})
+    from_file = changed(settings, {"spec_file": path})
     assert server.load_spec(from_file)["openapi"] == "3.0.3"
     assert seen == []
 
@@ -328,12 +330,13 @@ def test_main_loads_the_settings_then_runs(
 def test_main_warns_about_each_http_url(
     monkeypatch: pytest.MonkeyPatch, settings: Settings, log_records: LogRecords
 ) -> None:
-    insecure = settings.model_copy(
-        update={
+    insecure = changed(
+        settings,
+        {
             "base_url": "http://aft.test",
             "spec_url": None,
             "allow_insecure": True,
-        }
+        },
     )
     monkeypatch.setattr(server, "load_settings", lambda *_: insecure)
     monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
@@ -419,7 +422,7 @@ def test_the_instance_names_the_server_and_its_instructions(
     aft_like_spec: dict[str, Any],
 ) -> None:
     stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
-    mcp = server.create_server(settings.model_copy(update={"instance": "prod"}))
+    mcp = server.create_server(changed(settings, {"instance": "prod"}))
     assert mcp.name == "AFT (prod)"
     assert mcp.instructions is not None
     assert "AFT instance named 'prod'" in mcp.instructions
@@ -432,23 +435,12 @@ def test_main_adds_the_instance_to_every_log_line(
         def run(self) -> None:
             structlog.get_logger("aft_mcp.test").info("serving")
 
-    labelled = settings.model_copy(update={"instance": "test"})
+    labelled = changed(settings, {"instance": "test"})
     monkeypatch.setattr(server, "load_settings", lambda *_: labelled)
     monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
     monkeypatch.setattr(server, "create_server", lambda _s: LoggingServer())
     server.main()
     assert log_records()[-1]["instance"] == "test"
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [("203.0.113.5 52114 192.0.2.1 22", "203.0.113.5:52114"), ("", None)],
-)
-def test_ssh_client_address(
-    monkeypatch: pytest.MonkeyPatch, value: str, expected: str | None
-) -> None:
-    monkeypatch.setenv("SSH_CONNECTION", value)
-    assert server.ssh_client_address() == expected
 
 
 def test_main_passes_the_log_settings_and_binds_the_ssh_client(
@@ -460,8 +452,9 @@ def test_main_passes_the_log_settings_and_binds_the_ssh_client(
         def run(self) -> None:
             structlog.get_logger("aft_mcp.test").info("serving")
 
-    to_syslog = settings.model_copy(
-        update={"log_syslog": True, "log_stderr": False, "log_syslog_facility": "auth"}
+    to_syslog = changed(
+        settings,
+        {"log_syslog": True, "log_stderr": False, "log_syslog_facility": "auth"},
     )
     monkeypatch.setenv("SSH_CONNECTION", "203.0.113.5 52114 192.0.2.1 22")
     monkeypatch.setattr(server, "load_settings", lambda *_: to_syslog)

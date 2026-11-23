@@ -6,22 +6,20 @@ log lines go to stderr.
 """
 
 import asyncio
-import os
 from typing import TYPE_CHECKING, Any
 
 import cyclopts
-from dotenv import dotenv_values
 from pydantic import SecretStr
 
 from aft_mcp import __version__, server
 from aft_mcp.audit import configure_logging
 from aft_mcp.settings import (
-    ENV_PREFIX,
+    GROUPS,
+    AftMcpSettings,
     Settings,
     SettingsError,
-    env_file_path,
+    load_paths,
     load_settings,
-    secrets_dir_path,
 )
 
 if TYPE_CHECKING:
@@ -40,8 +38,8 @@ WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def _load() -> tuple[Settings, Path, Path | None]:
-    env_file = env_file_path()
-    secrets_dir = secrets_dir_path()
+    paths = load_paths()
+    env_file, secrets_dir = paths.env_file_path, paths.secrets_dir_path
     return load_settings(env_file, secrets_dir), env_file, secrets_dir
 
 
@@ -77,7 +75,7 @@ def check() -> int:
         return 1
     found = "found" if env_file.is_file() else "not found"
     _report(ok=True, step="settings", detail=f"{env_file} ({found})")
-    configure_logging(settings.log_format)
+    configure_logging(settings.log.format)
     try:
         spec = server.load_spec(settings)
     except Exception as error:
@@ -122,7 +120,7 @@ def tools() -> int:
     """
     try:
         settings, _, _ = _load()
-        configure_logging(settings.log_format)
+        configure_logging(settings.log.format)
         mcp = server.create_server(settings)
     except SettingsError as error:
         print(error)
@@ -151,13 +149,26 @@ def show_settings() -> int:
     except SettingsError as error:
         print(error)
         return 1
-    from_file = dotenv_values(env_file) if env_file.is_file() else {}
-    for name in Settings.model_fields:
-        variable = f"{ENV_PREFIX}{name.upper()}"
-        value = _shown(getattr(settings, name))
-        source = _source(variable, from_file, env_file, secrets_dir)
-        print(f"{variable:28} {value:32} {source}")
+    for attribute, group in GROUPS.items():
+        print(f"# {group.title}")
+        values: AftMcpSettings = getattr(settings, attribute)
+        for field in group.model_fields:
+            variable = group.env_name(field)
+            value = _shown(getattr(values, field))
+            where = _where(values.source_of(field), variable, env_file, secrets_dir)
+            print(f"{variable:28} {value:32} {where}")
     return 0
+
+
+def _where(source: str, variable: str, env_file: Path, secrets: Path | None) -> str:
+    """Name a tracked source (``env``, ``dotenv``, ``secret_file``) for people."""
+    if source == "env":
+        return "environment"
+    if source == "dotenv":
+        return str(env_file)
+    if source == "secret_file" and secrets is not None:
+        return str(secrets / variable)
+    return source
 
 
 def _shown(value: Any) -> str:  # noqa: ANN401 - any setting's value
@@ -165,24 +176,9 @@ def _shown(value: Any) -> str:  # noqa: ANN401 - any setting's value
         return "unset"
     if isinstance(value, SecretStr):
         return MASK
-    if isinstance(value, frozenset):
-        return ",".join(str(item) for item in sorted(value))
+    if isinstance(value, list):
+        return ",".join(str(item) for item in value)
     return str(value)
-
-
-def _source(
-    variable: str,
-    from_file: dict[str, str | None],
-    env_file: Path,
-    secrets_dir: Path | None,
-) -> str:
-    if os.environ.get(variable):
-        return "environment"
-    if from_file.get(variable):
-        return str(env_file)
-    if secrets_dir is not None and (secrets_dir / variable).is_file():
-        return f"{secrets_dir / variable}"
-    return "default"
 
 
 def main() -> None:
