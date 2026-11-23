@@ -1,23 +1,36 @@
-"""Log one line per tool call to stderr, as a record of what the agent did.
+"""Log every tool call to stderr with structlog, as a record of what the agent did.
 
-AFT records the result of writes, but not reads or refused calls. Each line gives the
-time the call started (UTC), the tool, the ids it was called with, and the HTTP
-status AFT answered with::
+AFT records the result of writes, but not reads or refused calls. For each tool call
+the server logs one ``aft_response`` line per HTTP request it sent, then one
+``tool_result`` line with the outcome. As logfmt (each line also starts with
+``timestamp=... level=info logger=aft_mcp.audit``)::
 
-    2026-11-23T12:00:01Z patch_cards_done card_id=42 -> 200
+    event=aft_response call=0c3e3ff3 tool=patch_cards_done method=PATCH
+        path=/api/cards/42/done status=200 card_id=42
+    event=tool_result call=0c3e3ff3 tool=patch_cards_done outcome=ok
+        duration_ms=81 card_id=42
+
+The ``call``, ``tool`` and id fields are bound to structlog's context variables for
+the length of the call, so every line logged during it carries them. Context
+variables only add fields to log lines: no code reads a value back out of them, and
+each part logs what it sees itself (the httpx hook the status, the middleware the
+outcome).
 
 Request and response bodies are never logged, so card text and credentials stay out
-of the log. Over stdio, stderr is separate from the protocol stream, so the log never
-disturbs the client.
+of the log. The renderers quote and escape values, so a tool name from the client
+can't forge a line. Over stdio, stderr is separate from the protocol stream, so the
+log never disturbs the client. Other libraries' log lines (FastMCP, httpx) are
+routed through the same handler and format; see ``configure_logging``.
 """
 
-import json
 import logging
 import re
+import secrets
 import sys
-from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any
+import time
+from typing import TYPE_CHECKING, Any, Literal, TextIO
 
+import structlog
 from fastmcp.server.middleware import Middleware
 
 if TYPE_CHECKING:
@@ -26,27 +39,23 @@ if TYPE_CHECKING:
     from fastmcp.server.middleware import CallNext, MiddlewareContext
     from fastmcp.tools.base import ToolResult
 
-AUDIT_LOG = logging.getLogger("aft_mcp.audit")
+type LogFormat = Literal["logfmt", "json"]
 
-# The HTTP statuses seen during the tool call in progress. A list rather than a value,
-# so a status recorded in a copied context (another task) still reaches the call.
-_statuses: ContextVar[list[int] | None] = ContextVar("aft_mcp_statuses", default=None)
+log = structlog.get_logger("aft_mcp.audit")
 
 
-async def record_status(response: httpx2.Response) -> None:
-    """An httpx response hook: note the status for the tool call in progress."""
-    statuses = _statuses.get()
-    if statuses is not None:
-        statuses.append(response.status_code)
+async def log_response(response: httpx2.Response) -> None:
+    """An httpx response hook: log the request's method, path and status."""
+    log.info(
+        "aft_response",
+        method=response.request.method,
+        path=response.request.url.path,  # no query string, which may hold text
+        status=response.status_code,
+    )
 
 
-# Tool and argument names come from the client. Anything other than a plain name is
-# logged JSON-quoted, so a newline or a fake "-> 200" can't forge a line.
+# Argument names come from the client. Only plain names can become log keys.
 PLAIN_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
-
-
-def _safe_name(name: str) -> str:
-    return name if PLAIN_NAME.fullmatch(name) else json.dumps(name)
 
 
 def _is_id_number(value: object) -> bool:
@@ -67,60 +76,111 @@ def _is_id(name: str, value: object) -> bool:
     )
 
 
-def _format_id(name: str, value: object) -> str:
-    if isinstance(value, list):
-        return f"{name}={','.join(str(item) for item in value)}"
-    return f"{name}={value}"
+def call_fields(context: MiddlewareContext[mt.CallToolRequestParams]) -> dict[str, Any]:
+    """The fields bound for one tool call: a call id, the tool and its id arguments.
 
-
-def describe(
-    context: MiddlewareContext[mt.CallToolRequestParams],
-    statuses: list[int],
-    *,
-    failed: bool,
-) -> str:
-    """The log line for one tool call; only id arguments are included."""
+    The id arguments all end in ``_id`` or ``_ids``, so they can't clash with
+    ``call`` or ``tool``.
+    """
     arguments: dict[str, Any] = context.message.arguments or {}
-    ids = [
-        _format_id(name, value)
-        for name, value in sorted(arguments.items())
-        if _is_id(name, value)
-    ]
-    if statuses:
-        outcome = ",".join(str(status) for status in statuses)
-    else:
-        outcome = "error, no request sent" if failed else "no request sent"
-    started = context.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")
-    return " ".join([started, _safe_name(context.message.name), *ids, "->", outcome])
+    ids = {
+        name: value for name, value in sorted(arguments.items()) if _is_id(name, value)
+    }
+    return {"call": secrets.token_hex(4), "tool": context.message.name, **ids}
 
 
 class AuditLog(Middleware):
-    """Write a line to the audit log for every tool call, allowed or not."""
+    """Log the outcome of every tool call, allowed or not."""
 
     async def on_call_tool(
         self,
         context: MiddlewareContext[mt.CallToolRequestParams],
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
-        """Run the tool, then log its name, ids and the statuses AFT returned."""
-        statuses: list[int] = []
-        token = _statuses.set(statuses)
-        failed = True
-        try:
-            result = await call_next(context)
-            failed = False
+        """Run the tool with its fields bound, then log the outcome and duration."""
+        with structlog.contextvars.bound_contextvars(**call_fields(context)):
+            started = time.perf_counter()
+            try:
+                result = await call_next(context)
+            except Exception as error:
+                # The exception type only: its message may quote AFT's response.
+                log.info(
+                    "tool_result",
+                    outcome="error",
+                    error=type(error).__name__,
+                    duration_ms=_elapsed_ms(started),
+                )
+                raise
+            log.info(
+                "tool_result",
+                outcome="error" if result.is_error else "ok",
+                duration_ms=_elapsed_ms(started),
+            )
             return result
-        finally:
-            _statuses.reset(token)
-            AUDIT_LOG.info(describe(context, statuses, failed=failed))
 
 
-def configure_audit_log() -> None:
-    """Send the audit log to stderr, one bare line per call."""
-    if AUDIT_LOG.handlers:
-        return
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    AUDIT_LOG.addHandler(handler)
-    AUDIT_LOG.setLevel(logging.INFO)
-    AUDIT_LOG.propagate = False
+def _elapsed_ms(started: float) -> int:
+    return round((time.perf_counter() - started) * 1000)
+
+
+# The handler configure_logging() installs on the root logger, found again by name.
+HANDLER_NAME = "aft_mcp"
+
+
+def configure_logging(log_format: LogFormat, stream: TextIO = sys.stderr) -> None:
+    """Send every log line, ours and third-party, to ``stream`` (stderr).
+
+    structlog runs on top of stdlib logging, and one handler on the root logger
+    renders both structlog's lines and those of other libraries (FastMCP, httpx) as
+    logfmt or JSON, with the same timestamp, level, logger name and per-call fields.
+    stdout belongs to the MCP protocol, so nothing may be logged there.
+
+    FastMCP gives its ``fastmcp`` logger its own Rich handler at import and stops it
+    propagating; that is undone here, so its lines take the same path. httpx logs
+    each request at INFO with the full URL, which ``aft_response`` already covers
+    without the query string, so only its warnings come through.
+    """
+    renderer: structlog.typing.Processor = (
+        structlog.processors.JSONRenderer()
+        if log_format == "json"
+        else structlog.processors.LogfmtRenderer(
+            key_order=["timestamp", "level", "logger", "event", "call", "tool"],
+            drop_missing=True,
+        )
+    )
+    shared: list[structlog.typing.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
+    ]
+    structlog.configure(
+        processors=[*shared, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=False,
+    )
+
+    handler = logging.StreamHandler(stream)
+    handler.set_name(HANDLER_NAME)
+    handler.setFormatter(
+        structlog.stdlib.ProcessorFormatter(
+            foreign_pre_chain=shared,
+            processors=[
+                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+                structlog.processors.format_exc_info,
+                renderer,
+            ],
+        )
+    )
+    root = logging.getLogger()
+    for old in [h for h in root.handlers if h.get_name() == HANDLER_NAME]:
+        root.removeHandler(old)
+    root.addHandler(handler)
+    root.setLevel(logging.WARNING)
+    logging.getLogger("aft_mcp").setLevel(logging.INFO)
+
+    fastmcp_logger = logging.getLogger("fastmcp")
+    for old in fastmcp_logger.handlers[:]:
+        fastmcp_logger.removeHandler(old)
+    fastmcp_logger.propagate = True

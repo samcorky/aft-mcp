@@ -8,7 +8,7 @@ the error names every bad setting at once.
 
 import os
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     Field,
@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     password: SecretStr = Field(min_length=1)
     # Optional switches: unset means off, the behaviour before they existed.
     read_only: bool = False
+    # How the audit log on stderr is written: logfmt lines, or one JSON object each.
+    log_format: Literal["logfmt", "json"] = "logfmt"
     # Comma-separated, e.g. AFT_BOARD_IDS=12,15; unset allows every board.
     board_ids: Annotated[frozenset[PositiveInt] | None, NoDecode] = None
 

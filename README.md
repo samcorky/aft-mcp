@@ -64,6 +64,7 @@ shown in reprs, logs or errors.
 | `AFT_SPEC_FILE` | no       | Load the spec from a local file instead of `AFT_SPEC_URL`              |
 | `AFT_READ_ONLY` | no       | `true` to expose only the safe reads, no writes (default `false`)      |
 | `AFT_BOARD_IDS` | no       | Comma-separated board ids the tools may reach (default: every board)    |
+| `AFT_LOG_FORMAT`| no       | Audit log format on stderr: `logfmt` (default) or `json`               |
 | `AFT_ENV_FILE`  | no       | Path of the `.env` file to read, instead of `./.env` (environment only) |
 
 \* Not needed when `AFT_SPEC_FILE` is set.
@@ -116,16 +117,26 @@ uv run aft-mcp              # stdio transport; python -m aft_mcp does the same
 
 ### Audit log
 
-The server writes one line to stderr for every tool call, allowed or refused: when it started (UTC), the tool, the
-ids it was called with, and the HTTP status AFT answered with.
+The server logs every tool call to stderr, allowed or refused, with [structlog](https://www.structlog.org/). Each HTTP
+request to AFT gets an `aft_response` line with its method, path and status, and each call ends with a `tool_result`
+line with the outcome (`ok` or `error`, plus the exception type) and its duration. Every line from one call carries the
+same `call` id, the `tool` and the id arguments it was called with (`*_id`, `*_ids`).
 
 ```text
-2026-11-23T12:00:01Z patch_cards_done card_id=42 -> 200
-2026-11-23T12:00:04Z get_boards_by_board_id board_id=99 -> 403
-2026-11-23T12:00:09Z delete_cards_by_card_id card_id=42 -> error, no request sent
+timestamp=2026-11-23T12:00:01.204Z level=info logger=aft_mcp.audit event=aft_response call=0c3e3ff3 tool=patch_cards_done method=PATCH path=/api/cards/42/done status=200 card_id=42
+timestamp=2026-11-23T12:00:01.207Z level=info logger=aft_mcp.audit event=tool_result call=0c3e3ff3 tool=patch_cards_done outcome=ok duration_ms=81 card_id=42
+timestamp=2026-11-23T12:00:04.511Z level=info logger=aft_mcp.audit event=tool_result call=9b1d77e2 tool=delete_cards_by_card_id outcome=error error=NotFoundError duration_ms=1 card_id=42
 ```
 
-Request and response bodies are never logged, so card text and credentials stay out of it. MCP clients keep stderr
+The lines are [logfmt](https://brandur.org/logfmt) by default; set `AFT_LOG_FORMAT=json` for one JSON object per line,
+for log pipelines. Values are quoted and escaped, so a name sent by the client can't forge a line.
+
+FastMCP's and httpx's own log lines go through the same handler, in the same format, so stderr has one format
+throughout. A FastMCP error logged during a call carries that call's `call`, `tool` and id fields. httpx's per-request
+INFO lines are dropped, since `aft_response` covers them without the query string.
+
+Request and response bodies, query strings and error messages are never logged, so card text and credentials stay out
+of it. MCP clients keep stderr
 apart from the protocol stream; Claude Code and Claude Desktop write it to their MCP server logs.
 
 ## Connecting to Claude and agents

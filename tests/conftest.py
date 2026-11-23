@@ -1,9 +1,19 @@
+import io
+import json
+import logging
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
+import structlog
 
+from aft_mcp.audit import HANDLER_NAME, configure_logging
 from aft_mcp.settings import Settings, load_settings
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+type LogRecords = Callable[[], list[dict[str, Any]]]
 
 ENV = {
     "AFT_BASE_URL": "https://aft.test",
@@ -102,3 +112,21 @@ def aft_like_spec() -> dict[str, Any]:
             "/api/database/backup": {"get": _op()},  # GET with a side effect
         },
     }
+
+
+@pytest.fixture(autouse=True)
+def log_records() -> Iterator[LogRecords]:
+    """Send structlog to memory as JSON for each test; return a reader of the records.
+
+    Without this, structlog's default would print to stdout.
+    """
+    root, fastmcp, ours = (logging.getLogger(n) for n in ("", "fastmcp", "aft_mcp"))
+    saved = (root.level, fastmcp.handlers[:], fastmcp.propagate, ours.level)
+    stream = io.StringIO()
+    configure_logging("json", stream)
+    yield lambda: [json.loads(line) for line in stream.getvalue().splitlines()]
+    structlog.reset_defaults()
+    structlog.contextvars.clear_contextvars()
+    for handler in [h for h in root.handlers if h.get_name() == HANDLER_NAME]:
+        root.removeHandler(handler)
+    root.level, fastmcp.handlers[:], fastmcp.propagate, ours.level = saved

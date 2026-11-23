@@ -15,6 +15,7 @@ ALL_SETTINGS = [
     "AFT_ENV_FILE",
     "AFT_READ_ONLY",
     "AFT_BOARD_IDS",
+    "AFT_LOG_FORMAT",
 ]
 
 
@@ -148,6 +149,20 @@ def test_read_only_rejects_anything_else(
     monkeypatch.setenv("AFT_READ_ONLY", "maybe")
     (problem,) = problems()
     assert problem.startswith("AFT_READ_ONLY: ")
+
+
+def test_log_format_is_logfmt_unless_set(aft_env: dict[str, str]) -> None:
+    assert load_settings(env_file=None).log_format == "logfmt"
+
+
+def test_log_format_accepts_json_and_rejects_anything_else(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
+) -> None:
+    monkeypatch.setenv("AFT_LOG_FORMAT", "json")
+    assert load_settings(env_file=None).log_format == "json"
+    monkeypatch.setenv("AFT_LOG_FORMAT", "xml")
+    (problem,) = problems()
+    assert problem.startswith("AFT_LOG_FORMAT: ")
 
 
 def test_board_ids_allow_every_board_unless_set(aft_env: dict[str, str]) -> None:

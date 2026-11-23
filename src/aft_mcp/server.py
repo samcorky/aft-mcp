@@ -7,7 +7,7 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
 from aft_mcp import __version__
-from aft_mcp.audit import AuditLog, configure_audit_log, record_status
+from aft_mcp.audit import AuditLog, configure_logging, log_response
 from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import Settings, SettingsError, env_file_path, load_settings
 from aft_mcp.swagger_convert import JSON, convert
@@ -61,7 +61,7 @@ def build_client(
         timeout=settings.timeout,
         auth=(settings.username, settings.password.get_secret_value()),
         transport=transport,
-        event_hooks={"response": [record_status]},
+        event_hooks={"response": [log_response]},
     )
 
 
@@ -135,5 +135,5 @@ def main() -> None:
         settings = load_settings(env_file_path())
     except SettingsError as error:
         sys.exit(str(error))  # exits with status 1, the message on stderr
-    configure_audit_log()
+    configure_logging(settings.log_format)
     create_server(settings).run()

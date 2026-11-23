@@ -9,7 +9,6 @@ or Claude Desktop would, against a local HTTP server standing in for AFT.
 
 import base64
 import json
-import logging
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,6 +27,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from aft_mcp.settings import Settings
+    from tests.conftest import LogRecords
 
 pytestmark = pytest.mark.anyio
 
@@ -225,42 +225,56 @@ async def test_aft_error_comes_back_as_a_tool_error(
 # --- the audit log -----------------------------------------------------------------
 
 
-def audit_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
-    """The audit lines, without the leading timestamp."""
+def summary(records: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    """Each record as (event, tool, ids, status or outcome), for comparing calls."""
     return [
-        record.getMessage().split(" ", 1)[1]
-        for record in caplog.records
-        if record.name == "aft_mcp.audit"
+        (
+            record["event"],
+            record["tool"],
+            record.get("card_id"),
+            record.get("status", record.get("outcome")),
+        )
+        for record in records
+        if record["logger"] == "aft_mcp.audit"
     ]
 
 
 async def test_each_tool_call_is_logged_with_its_ids_and_status(
-    client: Client[Any], fake_aft: FakeAft, caplog: pytest.LogCaptureFixture
+    client: Client[Any], fake_aft: FakeAft, log_records: LogRecords
 ) -> None:
-    caplog.set_level(logging.INFO, logger="aft_mcp.audit")
     await client.call_tool("get_boards", {})
     await client.call_tool("patch_cards_by_card_id", {"card_id": 5, "title": "Secret"})
     fake_aft.status = 403
     await client.call_tool("get_boards", {}, raise_on_error=False)
 
-    assert audit_lines(caplog) == [
-        "get_boards -> 200",
-        "patch_cards_by_card_id card_id=5 -> 200",
-        "get_boards -> 403",
+    records = log_records()
+    assert summary(records) == [
+        ("aft_response", "get_boards", None, 200),
+        ("tool_result", "get_boards", None, "ok"),
+        ("aft_response", "patch_cards_by_card_id", 5, 200),
+        ("tool_result", "patch_cards_by_card_id", 5, "ok"),
+        ("aft_response", "get_boards", None, 403),
+        ("tool_result", "get_boards", None, "error"),
     ]
-    assert "Secret" not in caplog.text  # bodies are never logged
+    assert "Secret" not in json.dumps(records)  # bodies are never logged
+    # FastMCP's own error line takes the same path, with the call's fields.
+    [fastmcp_error] = [r for r in records if r["logger"].startswith("fastmcp")]
+    assert fastmcp_error["level"] == "error"
+    assert fastmcp_error["tool"] == "get_boards"
 
 
 async def test_a_refused_tool_call_is_logged(
-    client: Client[Any], caplog: pytest.LogCaptureFixture
+    client: Client[Any], log_records: LogRecords
 ) -> None:
-    caplog.set_level(logging.INFO, logger="aft_mcp.audit")
     await client.call_tool(
         "delete_cards_by_card_id", {"card_id": 5}, raise_on_error=False
     )
-    assert audit_lines(caplog) == [
-        "delete_cards_by_card_id card_id=5 -> error, no request sent"
-    ]
+    [record] = [r for r in log_records() if r["logger"] == "aft_mcp.audit"]
+    assert record["event"] == "tool_result"
+    assert record["tool"] == "delete_cards_by_card_id"
+    assert record["card_id"] == 5
+    assert record["outcome"] == "error"
+    assert record["error"] == "NotFoundError"  # refused before any request to AFT
 
 
 # --- end to end over stdio --------------------------------------------------------
