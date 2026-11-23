@@ -1,25 +1,29 @@
 import asyncio
 import json
+import runpy
+from importlib.metadata import entry_points
 from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
 from fastmcp import FastMCP
 
-import server
-from swagger_convert import convert
+from aft_mcp import server
+from aft_mcp.board_guard import BoardGuard
+from aft_mcp.settings import Settings, SettingsError
+from aft_mcp.swagger_convert import convert
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
 
-def tool_names(spec: dict[str, Any]) -> set[str]:
+def tool_names(spec: dict[str, Any], *, read_only: bool = False) -> set[str]:
     """Build a server from a spec with the real route maps and list its tools."""
     mcp = FastMCP.from_openapi(
         openapi_spec=convert(spec),
         client=httpx2.AsyncClient(base_url="https://aft.test"),
-        route_maps=server.build_route_maps(),
+        route_maps=server.build_route_maps(read_only=read_only),
     )
     return {tool.name for tool in asyncio.run(mcp.list_tools())}
 
@@ -64,6 +68,29 @@ def test_only_safe_reads_and_allowed_writes_become_tools(
         "patch_cards_by_card_id",
         "post_cards_comments",
     }
+
+
+def test_read_only_mode_exposes_only_the_safe_reads(
+    aft_like_spec: dict[str, Any],
+) -> None:
+    assert tool_names(aft_like_spec, read_only=True) == {
+        "get_boards",
+        "get_boards_by_board_id",
+        "get_boards_columns",
+        "get_cards_by_card_id",
+    }
+
+
+def test_create_server_honours_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    aft_like_spec: dict[str, Any],
+) -> None:
+    stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
+    mcp = server.create_server(settings.model_copy(update={"read_only": True}))
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert names
+    assert all(name.startswith("get_") for name in names)
 
 
 def test_never_exposes_delete_board_writes_or_side_effect_gets(
@@ -121,33 +148,24 @@ def test_each_allowed_write_is_narrow(method: str, pattern: str) -> None:
     assert pattern != "^/api/boards$", "creating boards is not allowed"
 
 
-# --- configuration ----------------------------------------------------------------
+# --- the HTTP client ---------------------------------------------------------------
 
 
-def test_require_env_returns_the_value(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AFT_X", "1")
-    assert server.require_env("AFT_X") == "1"
-
-
-@pytest.mark.parametrize("value", [None, ""])
-def test_require_env_fails_clearly_when_missing_or_empty(
-    monkeypatch: pytest.MonkeyPatch, value: str | None
-) -> None:
-    if value is None:
-        monkeypatch.delenv("AFT_X", raising=False)
-    else:
-        monkeypatch.setenv("AFT_X", value)
-    with pytest.raises(RuntimeError, match="Missing required setting AFT_X"):
-        server.require_env("AFT_X")
-
-
-def test_build_client_uses_the_settings(aft_env: dict[str, str]) -> None:
-    client = server.build_client()
-    assert str(client.base_url) == "https://aft.test"
+def test_build_client_uses_the_settings(settings: Settings) -> None:
+    client = server.build_client(settings)
+    assert str(client.base_url) == "https://aft.test/"
     assert client.timeout.read == 5.0
     request = client.build_request("GET", "/api/boards")
     auth_flow = client._build_request_auth(request).auth_flow(request)
     assert next(auth_flow).headers["Authorization"].startswith("Basic ")
+
+
+def test_build_client_guards_the_boards_when_board_ids_is_set(
+    settings: Settings,
+) -> None:
+    assert not isinstance(server.build_client(settings)._transport, BoardGuard)
+    guarded = settings.model_copy(update={"board_ids": frozenset({12})})
+    assert isinstance(server.build_client(guarded)._transport, BoardGuard)
 
 
 # --- loading the spec -------------------------------------------------------------
@@ -183,25 +201,26 @@ def test_load_spec_from_url_raises_on_http_error(
 def test_load_spec_prefers_the_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    aft_env: dict[str, str],
+    settings: Settings,
     aft_like_spec: dict[str, Any],
 ) -> None:
     path = tmp_path / "spec.json"
     path.write_text(json.dumps(aft_like_spec), encoding="utf-8")
-    monkeypatch.setenv("AFT_SPEC_FILE", str(path))
     seen = stub_http(monkeypatch, lambda _: httpx2.Response(500))
-    assert server.load_spec()["openapi"] == "3.0.3"
+    from_file = settings.model_copy(update={"spec_file": path})
+    assert server.load_spec(from_file)["openapi"] == "3.0.3"
     assert seen == []
 
 
 def test_load_spec_fetches_the_url(
     monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
     aft_env: dict[str, str],
     aft_like_spec: dict[str, Any],
 ) -> None:
     seen = stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
-    assert server.load_spec()["openapi"] == "3.0.3"
-    assert [str(r.url) for r in seen] == [aft_env["AFT_SPEC_URL"]]
+    assert server.load_spec(settings)["openapi"] == "3.0.3"
+    assert [str(r.url) for r in seen] == [aft_env["AFT_MCP_SPEC_URL"]]
 
 
 # --- assembling and running -------------------------------------------------------
@@ -209,29 +228,59 @@ def test_load_spec_fetches_the_url(
 
 def test_create_server(
     monkeypatch: pytest.MonkeyPatch,
-    aft_env: dict[str, str],
+    settings: Settings,
     aft_like_spec: dict[str, Any],
 ) -> None:
     stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
-    mcp = server.create_server()
+    mcp = server.create_server(settings)
     assert mcp.name == "AFT"
     assert "get_boards" in {t.name for t in asyncio.run(mcp.list_tools())}
 
 
-def test_main_loads_dotenv_then_runs(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
+def test_main_loads_the_settings_then_runs(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    calls: list[object] = []
 
     class FakeServer:
+        def __init__(self, given: Settings) -> None:
+            calls.append(given)
+
         def run(self) -> None:
             calls.append("run")
 
-    monkeypatch.setattr(server, "load_dotenv", lambda: calls.append("dotenv"))
+    monkeypatch.setattr(server, "load_settings", lambda _env_file: settings)
     monkeypatch.setattr(server, "create_server", FakeServer)
     server.main()
-    assert calls == ["dotenv", "run"]
+    assert calls == [settings, "run"]
+
+
+def test_main_exits_listing_every_settings_problem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail(_env_file: Path | None) -> Settings:
+        raise SettingsError(["AFT_MCP_BASE_URL: missing", "AFT_MCP_TIMEOUT: missing"])
+
+    monkeypatch.setattr(server, "load_settings", fail)
+    with pytest.raises(SystemExit) as exited:
+        server.main()
+    assert "AFT_MCP_BASE_URL: missing" in str(exited.value.code)
+    assert "AFT_MCP_TIMEOUT: missing" in str(exited.value.code)
 
 
 def test_importing_the_module_has_no_side_effects() -> None:
     # Regression: the server used to be built at import time, which needed the
     # network and a full .env just to import it.
     assert not hasattr(server, "mcp")
+
+
+def test_python_m_aft_mcp_runs_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(server, "main", lambda: calls.append("main"))
+    runpy.run_module("aft_mcp", run_name="__main__")
+    assert calls == ["main"]
+
+
+def test_installs_the_aft_mcp_command() -> None:
+    (script,) = entry_points(group="console_scripts", name="aft-mcp")
+    assert script.value == "aft_mcp.server:main"

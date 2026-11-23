@@ -10,8 +10,8 @@ don't copy them here.
 | Task                                        | Guidance                                                                       |
 |---------------------------------------------|--------------------------------------------------------------------------------|
 | Setup, commands, style, pull requests       | [CONTRIBUTING.md](CONTRIBUTING.md); tasks in `pyproject.toml` (`uv run poe`)   |
-| Which endpoints become tools                | "Changing what is exposed" in CONTRIBUTING.md, then `server.py`                |
-| Swagger 2.0 to OpenAPI 3 conversion         | `swagger_convert.py` and `tests/test_swagger_convert.py`                       |
+| Which endpoints become tools                | "Changing what is exposed" in CONTRIBUTING.md, then `src/aft_mcp/server.py`    |
+| Swagger 2.0 to OpenAPI 3 conversion         | `src/aft_mcp/swagger_convert.py` and `tests/test_swagger_convert.py`           |
 | Configuration and connecting clients        | [README.md](README.md)                                                         |
 
 ## Sub-agents
@@ -29,9 +29,11 @@ the work yourself in the main session.
   in the same change; never edit a snapshot just to make a test pass.
 - Tests must not use the network or read `.env`. Stub HTTP with `httpx2.MockTransport`
   (see `stub_http` in `tests/test_server.py`, or the `client` fixture in
-  `tests/test_mcp.py` for whole MCP tool calls) and settings with the `aft_env` fixture.
-  A test that starts a subprocess or a local server is marked `e2e`.
-- `server.py` must stay import-safe: build the server in `main()`, not at module level.
+  `tests/test_mcp.py` for whole MCP tool calls) and settings with the `aft_env` and
+  `settings` fixtures (`load_settings(env_file=None)` reads the environment only). A
+  test that starts a subprocess or a local server is marked `e2e`.
+- `aft_mcp.server` must stay import-safe: build the server in `main()`, not at module
+  level.
 - Never read, print or commit `.env`, and don't put real AFT URLs or credentials in
   tests, docs or commits.
 

@@ -45,8 +45,12 @@ run them. There are three layers:
 | File                            | Tests                                                                                       |
 |---------------------------------|---------------------------------------------------------------------------------------------|
 | `tests/test_swagger_convert.py` | The Swagger 2.0 to OpenAPI 3 converter                                                      |
+| `tests/test_settings.py`        | Loading and validating the settings, and keeping the password out of output                 |
+| `tests/test_settings_reference.py` | The settings reference generator (`scripts/settings_reference.py`)                     |
+| `tests/test_board_guard.py`     | The board allowlist (`AFT_MCP_BOARD_IDS`): what it refuses, narrows and lets through            |
+| `tests/test_audit.py`           | The audit log lines written for each tool call, and their per-call fields                   |
 | `tests/test_server.py`          | Configuration, spec loading, and which endpoints become tools (with the reviewed snapshots) |
-| `tests/test_mcp.py`             | A real MCP client: handshake, tool calls and the HTTP each one sends to a stubbed AFT, plus an `e2e` test that runs `python server.py` over stdio against a local fake AFT |
+| `tests/test_mcp.py`             | A real MCP client: handshake, tool calls and the HTTP each one sends to a stubbed AFT, plus an `e2e` test that runs `python -m aft_mcp` over stdio against a local fake AFT |
 
 To try the server against a real AFT, copy `.env.example` to `.env` and fill it in (see
 the README).
@@ -55,6 +59,12 @@ the README).
 
 Run `uv run poe` to list every task.
 
+`.env.example` and `docs/settings.md` are generated from the `Settings` class in
+`src/aft_mcp/settings.py` by `scripts/settings_reference.py`, using each field's
+description and example. After adding or changing a setting, run
+`uv run poe settings-docs`. CI and a pre-commit hook (`uv run poe settings-docs-check`)
+fail while either file is out of date.
+
 | Task                     | Does                                                         |
 |--------------------------|--------------------------------------------------------------|
 | `uv run poe check`       | Everything CI checks: format, lint, types and tests          |
@@ -62,6 +72,7 @@ Run `uv run poe` to list every task.
 | `uv run poe test`        | The tests, with coverage (fails below 100%)                  |
 | `uv run poe test-fast`   | The tests without coverage, skipping `e2e`                   |
 | `uv run poe hooks`       | Every pre-commit hook on the whole repository                |
+| `uv run poe build-check` | Build the wheel and sdist, and run the tests against each    |
 
 ## Code style
 
@@ -75,11 +86,13 @@ The ruff and mypy settings follow the conventions of
 - `mypy --strict`, over the tests as well.
 - No `from __future__ import annotations`: on Python 3.14 annotations are already
   evaluated lazily, so imports used only in annotations go under `if TYPE_CHECKING:`.
-- `JSON` (in `swagger_convert.py`) is the type for spec fragments.
+- `JSON` (in `aft_mcp.swagger_convert`) is the type for spec fragments.
+- Every setting is a field on `Settings` in `aft_mcp.settings`; code takes a `Settings`
+  rather than reading the environment itself.
 
 ## Changing what is exposed
 
-`server.py` decides which AFT endpoints become tools. This is the main safety boundary
+`src/aft_mcp/server.py` decides which AFT endpoints become tools. This is the main safety boundary
 of the project, so changes to it get extra care:
 
 - Reads: every `GET` is exposed unless it matches `SIDE_EFFECT_GET_PATTERNS`. If you find
@@ -98,7 +111,8 @@ of the project, so changes to it get extra care:
 - Keep each pull request to one focused change.
 - Give it a [Conventional Commits](https://www.conventionalcommits.org/) title, such as
   `feat: add a tool for card labels`, `fix(converter): ...` or `docs: ...`. Add `!`
-  after the type (`feat!:`) for a breaking change, such as renaming a tool.
+  after the type (`feat!:`) for a breaking change, such as renaming a tool, and fill in
+  the "What's breaking" section of the template: what breaks and what to change.
 - Say `Closes #123` in the description to link the issue.
 - Two checks must pass before merging: `CI passed` (lint, types and tests) and
   `Hooks: prek (autofix)` (every other hook).
@@ -113,6 +127,21 @@ of the project, so changes to it get extra care:
   files under `.github/workflows`.
 - Dependency, action and hook updates come from Renovate, weekly.
 
+## Versions and releases
+
+Versions follow [CalVer](https://calver.org/) as `YYYY.MM.PATCH`, worked out from git
+tags by [calver-scm](https://github.com/samcorky/calver-scm) through hatch-vcs; there is
+no version number to edit by hand.
+
+- A release is a signed tag on `main` named `v` plus the version, such as `v2026.11.0`.
+  `PATCH` counts releases within the month and starts again at `0` each month.
+- Between tags, builds get a development version such as `2026.11.1.dev3`, plus
+  `+dirty` when the working tree has uncommitted changes.
+- `aft_mcp.__version__` and the version the server reports to MCP clients come from the
+  installed package metadata.
+- Publish a release from the tag with GitHub's "Generate release notes", which groups
+  pull requests by label (see below).
+
 ## Labels
 
 Release notes are grouped by pull request label (`.github/release.yml`). The `PR labeller`
@@ -122,14 +151,14 @@ no label for the kind of change; add one by hand and it reruns.
 
 | Label                                            | From                                               |
 |--------------------------------------------------|----------------------------------------------------|
-| `breaking-change`                                | `!` after the type, or `BREAKING CHANGE` in the body |
+| `breaking-change`                                | `!` after the type, a "What's breaking" section, or `BREAKING CHANGE` in the body |
 | `enhancement`                                    | `feat:`                                            |
 | `bug`                                            | `fix:`                                             |
 | `performance`                                    | `perf:`                                            |
 | `security`                                       | `security:` or a `(security)` scope                |
 | `dependencies`                                   | Renovate, or a change only to the lock and manifest files |
 | `maintenance`, `tests`, `CI/CD`, `documentation` | `chore:`, `refactor:`, `build:`, `style:`, `test:`, `ci:`, `docs:`, and matching files |
-| `area: server`, `area: converter`                | Changes to `server.py` or `swagger_convert.py` (where, not what; added automatically) |
+| `area: server`, `area: converter`                | Changes to the server and settings, or to the converter, in `src/aft_mcp/` (where, not what; added automatically) |
 | `skip-release-notes`                             | Added by hand to leave a pull request out          |
 
 ## Issues

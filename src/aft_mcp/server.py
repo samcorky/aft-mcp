@@ -1,25 +1,21 @@
 import json
-import os
-from pathlib import Path
+import sys
 from typing import TYPE_CHECKING
 
 import httpx2
-from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
-from swagger_convert import JSON, convert
+from aft_mcp import __version__
+from aft_mcp.audit import AuditLog, configure_logging, log_response
+from aft_mcp.board_guard import BoardGuard
+from aft_mcp.settings import ENV_FILE, Settings, SettingsError, load_settings
+from aft_mcp.swagger_convert import JSON, convert
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fastmcp.utilities.openapi.models import HttpMethod
-
-
-def require_env(name: str) -> str:
-    """Return a required setting from the environment (.env), or fail clearly."""
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Missing required setting {name}; set it in .env")
-    return value
 
 
 def load_spec_from_file(path: Path) -> JSON:
@@ -37,31 +33,35 @@ def load_spec_from_url(url: str, timeout: float) -> JSON:
     return spec
 
 
-def load_spec() -> JSON:
-    """Load the spec as OpenAPI 3, from AFT_SPEC_FILE if set, else AFT_SPEC_URL."""
-    spec_file = os.getenv("AFT_SPEC_FILE")
-    if spec_file:
-        spec = load_spec_from_file(Path(spec_file))
+def load_spec(settings: Settings) -> JSON:
+    """Load the spec as OpenAPI 3: from the spec file if set, else over HTTP."""
+    if settings.spec_file is not None:
+        spec = load_spec_from_file(settings.spec_file)
     else:
-        spec = load_spec_from_url(
-            require_env("AFT_SPEC_URL"), float(require_env("AFT_TIMEOUT"))
-        )
+        spec = load_spec_from_url(settings.spec_location, settings.timeout)
     return convert(spec)
 
 
 def build_client(
+    settings: Settings,
     transport: httpx2.AsyncBaseTransport | None = None,
 ) -> httpx2.AsyncClient:
     """Create the HTTP client used to call the AFT API.
 
     Args:
+        settings: The server settings.
         transport: Replaces the network transport; the tests pass a mock here.
     """
+    if settings.board_ids:
+        transport = BoardGuard(
+            transport or httpx2.AsyncHTTPTransport(), settings.board_ids
+        )
     return httpx2.AsyncClient(
-        base_url=require_env("AFT_BASE_URL"),
-        timeout=float(require_env("AFT_TIMEOUT")),
-        auth=(require_env("AFT_USERNAME"), require_env("AFT_PASSWORD")),
+        base_url=str(settings.base_url),
+        timeout=settings.timeout,
+        auth=(settings.username, settings.password.get_secret_value()),
         transport=transport,
+        event_hooks={"response": [log_response]},
     )
 
 
@@ -95,8 +95,13 @@ ALLOWED_WRITES: list[tuple[HttpMethod, str]] = [
 ]
 
 
-def build_route_maps() -> list[RouteMap]:
-    """Expose safe GET endpoints and allowed writes as tools; exclude the rest."""
+def build_route_maps(*, read_only: bool) -> list[RouteMap]:
+    """Expose safe GET endpoints and allowed writes as tools; exclude the rest.
+
+    Args:
+        read_only: Leave out every write, so only the safe GET endpoints remain.
+    """
+    writes = [] if read_only else ALLOWED_WRITES
     return [
         *(
             RouteMap(methods=["GET"], pattern=pattern, mcp_type=MCPType.EXCLUDE)
@@ -104,28 +109,31 @@ def build_route_maps() -> list[RouteMap]:
         ),
         *(
             RouteMap(methods=[method], pattern=pattern, mcp_type=MCPType.TOOL)
-            for method, pattern in ALLOWED_WRITES
+            for method, pattern in writes
         ),
         RouteMap(methods=["GET"], mcp_type=MCPType.TOOL),
         RouteMap(mcp_type=MCPType.EXCLUDE),
     ]
 
 
-def create_server() -> FastMCP:
-    """Assemble the MCP server from the OpenAPI spec."""
-    return FastMCP.from_openapi(
-        openapi_spec=load_spec(),
-        client=build_client(),
+def create_server(settings: Settings) -> FastMCP:
+    """Assemble the MCP server from the OpenAPI spec, with the audit log."""
+    mcp = FastMCP.from_openapi(
+        openapi_spec=load_spec(settings),
+        client=build_client(settings),
         name="AFT",
-        route_maps=build_route_maps(),
+        version=__version__,
+        route_maps=build_route_maps(read_only=settings.read_only),
     )
+    mcp.add_middleware(AuditLog())
+    return mcp
 
 
 def main() -> None:
-    """Load .env, build the server and serve it over stdio."""
-    load_dotenv()
-    create_server().run()
-
-
-if __name__ == "__main__":
-    main()
+    """Load the settings, build the server and serve it over stdio."""
+    try:
+        settings = load_settings(ENV_FILE)
+    except SettingsError as error:
+        sys.exit(str(error))  # exits with status 1, the message on stderr
+    configure_logging(settings.log_format)
+    create_server(settings).run()

@@ -81,6 +81,13 @@ repos:
         always_run: true
         pass_filenames: false
 
+      - id: settings-docs
+        name: check the settings reference is current
+        entry: uv run poe settings-docs-check
+        language: system
+        files: '^(src/aft_mcp/settings\.py|scripts/settings_reference\.py|\.env\.example|docs/settings\.md)$'
+        pass_filenames: false
+
       - id: ruff-check
         name: ruff check
         entry: uv run ruff check --fix

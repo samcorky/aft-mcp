@@ -3,8 +3,8 @@
 The in-memory tests connect a real FastMCP client to the server built by
 ``server.create_server()`` and check the HTTP requests each tool call sends to AFT,
 which is stubbed with ``httpx2.MockTransport``. The ``e2e`` test launches
-``python server.py`` over stdio, as Claude Code or Claude Desktop would, against a
-local HTTP server standing in for AFT.
+``python -m aft_mcp`` (what the ``aft-mcp`` command runs) over stdio, as Claude Code
+or Claude Desktop would, against a local HTTP server standing in for AFT.
 """
 
 import base64
@@ -12,7 +12,6 @@ import json
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx2
@@ -20,14 +19,18 @@ import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
-import server
+import aft_mcp
+from aft_mcp import server
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
+    from pathlib import Path
+
+    from aft_mcp.settings import Settings
+    from tests.conftest import LogRecords
 
 pytestmark = pytest.mark.anyio
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 BOARDS = [{"id": 12, "name": "Development"}]
 
 
@@ -53,19 +56,21 @@ def fake_aft() -> FakeAft:
 async def client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    aft_env: dict[str, str],
+    settings: Settings,
     aft_like_spec: dict[str, Any],
     fake_aft: FakeAft,
 ) -> AsyncIterator[Client[Any]]:
     """An MCP client connected in memory to the real server, with AFT stubbed."""
     spec_file = tmp_path / "spec.json"
     spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
-    monkeypatch.setenv("AFT_SPEC_FILE", str(spec_file))
     real_build_client = server.build_client
     transport = httpx2.MockTransport(fake_aft)
-    monkeypatch.setattr(server, "build_client", lambda: real_build_client(transport))
+    monkeypatch.setattr(
+        server, "build_client", lambda given: real_build_client(given, transport)
+    )
+    from_file = settings.model_copy(update={"spec_file": spec_file})
 
-    async with Client(server.create_server()) as connected:
+    async with Client(server.create_server(from_file)) as connected:
         yield connected
 
 
@@ -81,6 +86,7 @@ async def test_handshake_reports_the_server_and_its_tools(
 ) -> None:
     assert client.server_info is not None
     assert client.server_info.name == "AFT"
+    assert client.server_info.version == aft_mcp.__version__
     assert client.server_capabilities is not None
     assert client.server_capabilities.tools is not None
 
@@ -114,7 +120,7 @@ async def test_read_tool_calls_aft_with_basic_auth(
     assert request.method == "GET"
     assert str(request.url) == "https://aft.test/api/boards"
     assert request.headers["Authorization"] == basic_auth(
-        aft_env["AFT_USERNAME"], aft_env["AFT_PASSWORD"]
+        aft_env["AFT_MCP_USERNAME"], aft_env["AFT_MCP_PASSWORD"]
     )
 
 
@@ -132,6 +138,64 @@ async def test_write_tool_sends_path_params_and_a_json_body(
     assert request.method == "PATCH"
     assert request.url.path == "/api/cards/5"
     assert json.loads(request.content) == {"title": "Renamed"}
+
+
+async def test_read_only_server_lists_no_writes_and_refuses_them(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    settings: Settings,
+    aft_like_spec: dict[str, Any],
+    fake_aft: FakeAft,
+) -> None:
+    spec_file = tmp_path / "spec.json"
+    spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
+    real_build_client = server.build_client
+    transport = httpx2.MockTransport(fake_aft)
+    monkeypatch.setattr(
+        server, "build_client", lambda given: real_build_client(given, transport)
+    )
+    read_only = settings.model_copy(update={"spec_file": spec_file, "read_only": True})
+
+    async with Client(server.create_server(read_only)) as connected:
+        names = {tool.name for tool in await connected.list_tools()}
+        result = await connected.call_tool(
+            "patch_cards_by_card_id", {"card_id": 5, "title": "x"}, raise_on_error=False
+        )
+
+    assert names
+    assert all(name.startswith("get_") for name in names)
+    assert result.is_error
+    assert fake_aft.requests == []
+
+
+async def test_board_allowlist_refuses_a_tool_call_for_another_board(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    settings: Settings,
+    aft_like_spec: dict[str, Any],
+    fake_aft: FakeAft,
+) -> None:
+    spec_file = tmp_path / "spec.json"
+    spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
+    real_build_client = server.build_client
+    transport = httpx2.MockTransport(fake_aft)
+    monkeypatch.setattr(
+        server, "build_client", lambda given: real_build_client(given, transport)
+    )
+    allowlisted = settings.model_copy(
+        update={"spec_file": spec_file, "board_ids": frozenset({12})}
+    )
+
+    async with Client(server.create_server(allowlisted)) as connected:
+        allowed = await connected.call_tool("get_boards_by_board_id", {"board_id": 12})
+        refused = await connected.call_tool(
+            "get_boards_by_board_id", {"board_id": 99}, raise_on_error=False
+        )
+
+    assert not allowed.is_error
+    assert refused.is_error
+    assert "AFT_MCP_BOARD_IDS" in str(refused.content[0])
+    assert [r.url.path for r in fake_aft.requests] == ["/api/boards/12"]
 
 
 async def test_excluded_tool_is_unknown_and_never_reaches_aft(
@@ -156,6 +220,61 @@ async def test_aft_error_comes_back_as_a_tool_error(
 
     assert result.is_error
     assert "403" in result.content[0].text  # type: ignore[union-attr]
+
+
+# --- the audit log -----------------------------------------------------------------
+
+
+def summary(records: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    """Each record as (event, tool, ids, status or outcome), for comparing calls."""
+    return [
+        (
+            record["event"],
+            record["tool"],
+            record.get("card_id"),
+            record.get("status", record.get("outcome")),
+        )
+        for record in records
+        if record["logger"] == "aft_mcp.audit"
+    ]
+
+
+async def test_each_tool_call_is_logged_with_its_ids_and_status(
+    client: Client[Any], fake_aft: FakeAft, log_records: LogRecords
+) -> None:
+    await client.call_tool("get_boards", {})
+    await client.call_tool("patch_cards_by_card_id", {"card_id": 5, "title": "Secret"})
+    fake_aft.status = 403
+    await client.call_tool("get_boards", {}, raise_on_error=False)
+
+    records = log_records()
+    assert summary(records) == [
+        ("aft_response", "get_boards", None, 200),
+        ("tool_result", "get_boards", None, "ok"),
+        ("aft_response", "patch_cards_by_card_id", 5, 200),
+        ("tool_result", "patch_cards_by_card_id", 5, "ok"),
+        ("aft_response", "get_boards", None, 403),
+        ("tool_result", "get_boards", None, "error"),
+    ]
+    assert "Secret" not in json.dumps(records)  # bodies are never logged
+    # FastMCP's own error line takes the same path, with the call's fields.
+    [fastmcp_error] = [r for r in records if r["logger"].startswith("fastmcp")]
+    assert fastmcp_error["level"] == "error"
+    assert fastmcp_error["tool"] == "get_boards"
+
+
+async def test_a_refused_tool_call_is_logged(
+    client: Client[Any], log_records: LogRecords
+) -> None:
+    await client.call_tool(
+        "delete_cards_by_card_id", {"card_id": 5}, raise_on_error=False
+    )
+    [record] = [r for r in log_records() if r["logger"] == "aft_mcp.audit"]
+    assert record["event"] == "tool_result"
+    assert record["tool"] == "delete_cards_by_card_id"
+    assert record["card_id"] == 5
+    assert record["outcome"] == "error"
+    assert record["error"] == "NotFoundError"  # refused before any request to AFT
 
 
 # --- end to end over stdio --------------------------------------------------------
@@ -198,7 +317,7 @@ def local_aft(aft_env: dict[str, str]) -> Iterator[tuple[str, list[tuple[str, st
         {
             "seen": seen,
             "expected_auth": basic_auth(
-                aft_env["AFT_USERNAME"], aft_env["AFT_PASSWORD"]
+                aft_env["AFT_MCP_USERNAME"], aft_env["AFT_MCP_PASSWORD"]
             ),
         },
     )
@@ -222,11 +341,13 @@ async def test_stdio_server_lists_tools_and_calls_aft(
     base_url, seen = local_aft
     spec_file = tmp_path / "spec.json"
     spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
-    # Every setting is passed explicitly, so a developer's own .env never applies:
-    # load_dotenv() does not override variables that are already set.
-    env = {**aft_env, "AFT_BASE_URL": base_url, "AFT_SPEC_FILE": str(spec_file)}
+    # Run from an empty directory with every setting passed, so a developer's own
+    # .env never applies.
+    env = {**aft_env, "AFT_MCP_BASE_URL": base_url, "AFT_MCP_SPEC_FILE": str(spec_file)}
+    workdir = tmp_path / "cwd"
+    workdir.mkdir()
     transport = StdioTransport(
-        command=sys.executable, args=["server.py"], env=env, cwd=str(REPO_ROOT)
+        command=sys.executable, args=["-m", "aft_mcp"], env=env, cwd=str(workdir)
     )
 
     async with Client(transport) as stdio_client:
@@ -236,5 +357,5 @@ async def test_stdio_server_lists_tools_and_calls_aft(
     assert "get_boards" in names
     assert not {n for n in names if n.startswith("delete_")}
     assert result.structured_content == {"result": BOARDS}
-    auth = basic_auth(aft_env["AFT_USERNAME"], aft_env["AFT_PASSWORD"])
+    auth = basic_auth(aft_env["AFT_MCP_USERNAME"], aft_env["AFT_MCP_PASSWORD"])
     assert seen == [("/api/boards", auth)]

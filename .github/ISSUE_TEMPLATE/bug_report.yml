@@ -26,7 +26,7 @@ body:
       label: Steps to reproduce
       description: The prompt or tool call that triggers it, and what you did before.
       placeholder: |
-        1. Start the server with `uv run python server.py`
+        1. Start the server with `uv run aft-mcp`
         2. Call `get_boards` from Claude Code
         3. ...
     validations:

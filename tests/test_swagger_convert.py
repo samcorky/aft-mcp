@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from swagger_convert import convert
+from aft_mcp.swagger_convert import convert
 
 
 def swagger(paths: dict[str, Any], **extra: Any) -> dict[str, Any]:
