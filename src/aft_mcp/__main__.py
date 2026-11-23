@@ -1,5 +1,5 @@
-"""Run the server with ``python -m aft_mcp``, like the ``aft-mcp`` command."""
+"""Run ``python -m aft_mcp``, the same as the ``aft-mcp`` command."""
 
-from aft_mcp.server import main
+from aft_mcp.cli import main
 
 main()

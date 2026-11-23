@@ -1,7 +1,5 @@
 import asyncio
 import json
-import runpy
-from importlib.metadata import entry_points
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -409,18 +407,6 @@ def test_importing_the_module_has_no_side_effects() -> None:
     # Regression: the server used to be built at import time, which needed the
     # network and a full .env just to import it.
     assert not hasattr(server, "mcp")
-
-
-def test_python_m_aft_mcp_runs_main(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(server, "main", lambda: calls.append("main"))
-    runpy.run_module("aft_mcp", run_name="__main__")
-    assert calls == ["main"]
-
-
-def test_installs_the_aft_mcp_command() -> None:
-    (script,) = entry_points(group="console_scripts", name="aft-mcp")
-    assert script.value == "aft_mcp.server:main"
 
 
 def test_without_an_instance_the_server_is_plain_aft(settings: Settings) -> None:

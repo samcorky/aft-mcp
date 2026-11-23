@@ -10,9 +10,11 @@ resolution-markers = [
 name = "aft-mcp"
 source = { editable = "." }
 dependencies = [
+    { name = "cyclopts" },
     { name = "fastmcp" },
     { name = "httpx2" },
     { name = "pydantic-settings" },
+    { name = "python-dotenv" },
     { name = "structlog" },
 ]
 
@@ -29,9 +31,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cyclopts", specifier = ">=5.3.2" },
     { name = "fastmcp", specifier = ">=4.1.4" },
     { name = "httpx2", specifier = ">=0.28.1" },
     { name = "pydantic-settings", specifier = ">=2.16.2" },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "structlog", specifier = ">=25.5.0" },
 ]
 
