@@ -57,8 +57,8 @@ All settings come from the process environment, then from a `.env` file (a varia
 wins). The file is `.env` in the working directory; it is optional when the client passes every setting itself. Settings
 are loaded once at startup into a typed settings class (`aft_mcp.settings`, using
 [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)). There are no defaults in the code,
-so a missing or invalid setting stops the server, and the error lists every bad setting at once. The password is never
-shown in reprs, logs or errors.
+so a missing or invalid setting stops the server, and the error lists every bad setting at once. The token and password
+are never shown in reprs, logs or errors.
 
 [docs/settings.md](docs/settings.md) lists every variable, with its type, default and allowed values. The essentials:
 
@@ -66,20 +66,25 @@ shown in reprs, logs or errors.
 |---------------------|----------|-------------------------------------------------|
 | `AFT_MCP_BASE_URL`  | yes      | Base URL the generated tools call               |
 | `AFT_MCP_TIMEOUT`   | yes      | Request timeout in seconds                      |
-| `AFT_MCP_USERNAME`  | yes      | AFT account email, sent as HTTP basic auth      |
-| `AFT_MCP_PASSWORD`  | yes      | AFT account password                            |
+| `AFT_MCP_TOKEN`     | yes†     | AFT API token, sent as `Authorization: Bearer`  |
+| `AFT_MCP_USERNAME`  | yes†     | AFT account email, sent as HTTP basic auth      |
+| `AFT_MCP_PASSWORD`  | yes†     | AFT account password                            |
 | `AFT_MCP_READ_ONLY` | no       | `true` to expose only the safe reads, no writes |
 | `AFT_MCP_BOARD_IDS` | no       | Comma-separated board ids the tools may reach   |
 
 The tools are built from AFT's own spec, fetched from `api/apispec.json` under `AFT_MCP_BASE_URL`;
 `AFT_MCP_SPEC_URL` or `AFT_MCP_SPEC_FILE` point somewhere else.
 
+† Set `AFT_MCP_TOKEN` (recommended), or both `AFT_MCP_USERNAME` and `AFT_MCP_PASSWORD`, not both ways.
+
 `.env` is git-ignored. Never commit real credentials.
 
 ### Recommended: a dedicated AFT user
 
-Don't use your own AFT account. Create a separate user for the agent (for example `claude`) and put its email and
-password in `.env`.
+Don't use your own AFT account. Create a separate user for the agent (for example `claude`), make it **API only**
+in User Management (it can't sign in to the web app), and choose **Create API Token** on it. Put the token in `.env`
+as `AFT_MCP_TOKEN`. Make the token read only if the agent only needs to look, and give it an expiry. On AFT versions
+without API tokens, use the user's email and password instead.
 
 - **Limit it to specific boards.** In AFT, give that user access only to the boards the agent should work on, with the
   lowest role that does the job: a read-only role for boards it should only look at, an edit role for boards where it
@@ -89,8 +94,8 @@ password in `.env`.
   `AFT_MCP_BOARD_IDS` as a second check on the boards (see below).
 - **Attribution.** Comments, edits and assignments made through the MCP are recorded against that user, so you can
   tell the agent's work from yours. It can also be assigned cards.
-- **Revocation.** If the credentials leak or the agent misbehaves, disable that one user without affecting your own
-  account.
+- **Revocation.** If the token leaks, revoke it in AFT (Manage API Tokens on the user) without changing anything
+  else. If the agent misbehaves, disable that one user without affecting your own account.
 
 The tools only work where the user has permission. A write on a board where it has read-only access is refused by AFT
 with a 403. `get_roles_my_roles` and `get_permissions_mapping` show what the user can currently do.

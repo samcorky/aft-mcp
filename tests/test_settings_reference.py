@@ -37,17 +37,18 @@ def no_aft_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.usefixtures("no_aft_env")
-def test_the_example_loads_once_the_password_is_set(
+def test_the_example_loads_once_a_way_to_sign_in_is_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Every example is a value the settings accept; only the secret is missing."""
+    """Every example is a value the settings accept; only the sign-in is missing."""
     env_example = tmp_path / ENV_EXAMPLE_PATH
     env_example.write_text(reference_files()[ENV_EXAMPLE_PATH], encoding="utf-8")
-    with pytest.raises(SettingsError, match=r"AFT_MCP_PASSWORD: Field required"):
+    with pytest.raises(SettingsError, match=r"set AFT_MCP_TOKEN, or both"):
         load_settings(env_file=env_example)
-    monkeypatch.setenv("AFT_MCP_PASSWORD", "secret")
+    monkeypatch.setenv("AFT_MCP_TOKEN", "aft_token_value")
     loaded = load_settings(env_file=env_example)
-    assert loaded.username == "agent@example.com"
+    assert loaded.token is not None
+    assert loaded.username is None
     assert loaded.read_only is False
     assert loaded.board_ids is None
 
@@ -69,7 +70,9 @@ def test_needed_settings_are_set_and_optional_ones_commented() -> None:
     lines = reference_files()[ENV_EXAMPLE_PATH].splitlines()
     assert "AFT_MCP_BASE_URL=https://aft.example.com" in lines
     assert "# AFT_MCP_SPEC_URL=https://aft.example.com/api/apispec.json" in lines
-    assert "AFT_MCP_PASSWORD=" in lines
+    assert "# AFT_MCP_TOKEN=" in lines  # sign in with the token, or the pair below
+    assert "# AFT_MCP_USERNAME=agent@example.com" in lines
+    assert "# AFT_MCP_PASSWORD=" in lines
     assert "# AFT_MCP_READ_ONLY=false" in lines
     assert "# AFT_MCP_BOARD_IDS=12,15" in lines
     assert "# Required: yes." in lines
@@ -81,7 +84,7 @@ def test_the_reference_describes_each_variable() -> None:
     assert "| `AFT_MCP_TIMEOUT` | yes | number | none | more than 0 |" in doc
     assert "| `AFT_MCP_READ_ONLY` | no | true or false | `false` | any |" in doc
     assert "comma-separated list of whole numbers | unset | each more than 0" in doc
-    assert "| `AFT_MCP_PASSWORD` | yes | secret | none | not empty |" in doc
+    assert "| `AFT_MCP_TOKEN` | no | secret | unset | not empty |" in doc
     assert "| `AFT_MCP_LOG_FORMAT` | no | text | `logfmt` | `logfmt` or `json` |" in doc
 
 

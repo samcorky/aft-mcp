@@ -10,8 +10,9 @@ Every setting is an environment variable. The server reads the process environme
 | `AFT_MCP_SPEC_URL` | no | URL | unset | `http://` or `https://` | URL of AFT's Swagger 2.0 or OpenAPI spec, which the tools are built from. Unset, it is `api/apispec.json` under `AFT_MCP_BASE_URL`. Example: `https://aft.example.com/api/apispec.json`. |
 | `AFT_MCP_SPEC_FILE` | no | path | unset | any | Load the spec from this local file instead of `AFT_MCP_SPEC_URL`. |
 | `AFT_MCP_TIMEOUT` | yes | number | none | more than 0 | Request timeout in seconds. Example: `30`. |
-| `AFT_MCP_USERNAME` | yes | text | none | not empty | AFT account email, sent as HTTP basic auth. Use a dedicated user for the agent, not your own account. Example: `agent@example.com`. |
-| `AFT_MCP_PASSWORD` | yes | secret | none | not empty | Password of that AFT account. It is never shown in reprs, logs or errors. |
+| `AFT_MCP_TOKEN` | no | secret | unset | not empty | AFT API token, sent as `Authorization: Bearer` (recommended). Create it on an API-only user; set this, or both `AFT_MCP_USERNAME` and `AFT_MCP_PASSWORD`. It is never shown in reprs, logs or errors. |
+| `AFT_MCP_USERNAME` | no | text | unset | not empty | AFT account email or username, sent as HTTP basic auth, for AFT versions without API tokens. Needs `AFT_MCP_PASSWORD`; not with `AFT_MCP_TOKEN`. Use a dedicated user for the agent, not your own account. Example: `agent@example.com`. |
+| `AFT_MCP_PASSWORD` | no | secret | unset | not empty | Password of the `AFT_MCP_USERNAME` account. It is never shown in reprs, logs or errors. |
 | `AFT_MCP_READ_ONLY` | no | true or false | `false` | any | Expose only the safe reads, so no tool can change anything. |
 | `AFT_MCP_BOARD_IDS` | no | comma-separated list of whole numbers | unset | each more than 0 | Only let the tools reach these boards; unset allows every board the AFT user can see. Example: `12,15`. |
 | `AFT_MCP_LOG_FORMAT` | no | text | `logfmt` | `logfmt` or `json` | How the log on stderr is written: logfmt lines, or one JSON object per line for log pipelines. |
