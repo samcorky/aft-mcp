@@ -146,12 +146,18 @@ jobs:
       - name: Check the settings reference is current
         run: uv run poe settings-docs-check
 
+  image:
+    name: "Image: build and smoke test"
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+
   ci-passed:
     name: CI passed
     # The one check branch protection requires. It runs even when a needed job fails
     # or is cancelled, so it always reports; a skipped dependency would otherwise
     # leave it "skipped", which GitHub treats as passing.
-    needs: [lint, tests, build, generated-files]
+    needs: [lint, tests, build, generated-files, image]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

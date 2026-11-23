@@ -148,6 +148,34 @@ no version number to edit by hand.
 - Publish a release from the tag with GitHub's "Generate release notes", which groups
   pull requests by label (see below).
 
+Publishing a GitHub release runs two workflows:
+
+- **`release.yml` (PyPI):** checks the tag with calver-scm (`validate --against-repo`) and
+  that it is on `main`, builds and tests the wheel and sdist (`poe build-check`), then
+  uploads both through trusted publishing (OIDC, no stored token) with a build-provenance
+  attestation. Any failure publishes nothing.
+- **`publish.yml` (image), ported from menagerist:** builds the image with
+  `docker buildx bake` (`docker-bake.hcl`) on a native runner for `linux/amd64` and
+  `linux/arm64`, after `build.yml` has smoke tested it, and pushes one multi-platform
+  image to `ghcr.io/samcorky/aft-mcp` with an attestation. A release gets its version
+  (`2026.11.0`), and the month (`2026.11`), year (`2026`) and `latest` tags, each moved
+  only when no newer release covers it (`.github/actions/image-tags`,
+  `scripts/image_tags.py`). A push to `main` publishes `edge` and `sha-<commit>`. Run it
+  by hand to build only, tick `push` to push, or give a `tag` to preview the tags a
+  release would publish.
+
+The image (`Dockerfile`) installs the dependencies with `uv sync --locked`, so exactly
+what `uv.lock` records with every hash checked, from base images pinned by digest, and
+runs as a non-root user with no `.env` of its own. CI builds and smoke tests it on every
+pull request (`build.yml`); `uv run poe docker-build` builds `aft-mcp:local` the same way.
+
+One-off setup before the first release, done by a maintainer:
+
+- On pypi.org, add a pending trusted publisher for the project `aft-mcp`: owner
+  `samcorky`, repository `aft-mcp`, workflow `release.yml`, environment `pypi`.
+- In this repository's settings, create the `pypi` environment (optionally limited to tags
+  matching `v*`, with a required reviewer).
+
 ## Labels
 
 Release notes are grouped by pull request label (`.github/release.yml`). The `PR labeller`

@@ -44,8 +44,22 @@ uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
 - **Upgrading** is changing the ref in the client config and restarting the client. `uvx --refresh ...` rebuilds the
   cached environment if it ever needs it.
 
-Once aft-mcp is published to PyPI ([#21](https://github.com/samcorky/aft-mcp/issues/21)), `--from git+...` becomes
-`uvx aft-mcp@2026.11.0`.
+From the first release on PyPI, the version replaces the git ref: `uvx aft-mcp@2026.11.0`. Each release's files carry
+a build-provenance attestation, so you can check where they were built.
+
+## With Docker
+
+Each release is also an image on GHCR, for `linux/amd64` and `linux/arm64`. Pin a release (`2026.11.0`), or follow a
+month (`2026.11`), a year (`2026`) or `latest`; `edge` is the newest build of `main`. `-i` keeps stdin open for the stdio
+transport, and the settings come from a file passed in, since the image has no `.env` of its own:
+
+```bash
+docker run -i --rm --env-file /path/to/prod.env ghcr.io/samcorky/aft-mcp:<tag>
+```
+
+For Claude Code: `claude mcp add aft -- docker run -i --rm --env-file /path/to/prod.env ghcr.io/samcorky/aft-mcp:<tag>`.
+To keep the token out of the env file, mount it as a secret named `AFT_MCP_TOKEN` and add
+`-e AFT_MCP_SECRETS_DIR=/run/secrets`.
 
 ## From a checkout
 

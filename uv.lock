@@ -27,6 +27,9 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+release = [
+    { name = "calver-scm", extra = ["cli"] },
+]
 
 [package.metadata]
 requires-dist = [
@@ -47,6 +50,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.17.6" },
 ]
+release = [{ name = "calver-scm", extras = ["cli"], specifier = ">=1.13.1" }]
 
 [[package]]
 name = "aiofile"
