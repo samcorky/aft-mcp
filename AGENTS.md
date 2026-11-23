@@ -12,7 +12,7 @@ don't copy them here.
 | Setup, commands, style, pull requests       | [CONTRIBUTING.md](CONTRIBUTING.md); tasks in `pyproject.toml` (`uv run poe`)   |
 | Which endpoints become tools                | "Changing what is exposed" in CONTRIBUTING.md, then `src/aft_mcp/server.py`    |
 | Swagger 2.0 to OpenAPI 3 conversion         | `src/aft_mcp/swagger_convert.py` and `tests/test_swagger_convert.py`           |
-| Configuration and connecting clients        | [README.md](README.md)                                                         |
+| Configuration and connecting clients        | `docs/settings.md` (generated), `docs/clients.md`, `docs/access.md`            |
 
 ## Sub-agents
 

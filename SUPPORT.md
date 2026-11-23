@@ -1,7 +1,7 @@
 # Getting help
 
-- **Setting up or connecting a client:** see the [README](README.md), especially
-  "Configuration" and "Connecting to Claude and agents".
+- **Setting up or connecting a client:** see the [README](README.md)'s quickstart, then
+  [Settings](docs/settings.md) and [Connecting clients](docs/clients.md).
 - **Something is broken in aft-mcp:** open a [bug report](https://github.com/samcorky/aft-mcp/issues/new/choose).
 - **An idea or a missing tool:** open a [feature request](https://github.com/samcorky/aft-mcp/issues/new/choose).
 - **A problem with AFT itself** (the app or its API): use the

@@ -17,262 +17,57 @@
 ---
 
 An [MCP](https://modelcontextprotocol.io) server for the API of [AFT](https://github.com/sjefferson99/aft) (Aim,
-Focus, Track), a self-hosted application for tasks. It fetches AFT's Swagger 2.0 spec, converts it to
-OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://gofastmcp.com).
+Focus, Track), a self-hosted application for tasks. It turns AFT's API into MCP tools, so an agent such as Claude can
+read your boards and make safe, reversible changes to them.
 
 ## What is exposed
 
-- **Reads:** every `GET` endpoint, except any `GET` that changes state (`SIDE_EFFECT_GET_PATTERNS` in `src/aft_mcp/server.py`).
-- **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `src/aft_mcp/server.py`): edit or move a
-  card, set done status and assignees, archive/unarchive cards, add comments and checklist items, update checklist
-  items, add cards and columns, and rename or reorder columns.
-- **Read-only mode:** with `AFT_MCP_READ_ONLY=true` no writes are exposed at all, only the reads above. Use it for a
-  look-only connection, such as a second instance against a production AFT.
-- **Board allowlist:** with `AFT_MCP_BOARD_IDS=12,15` the tools only reach those boards. See
-  [Limiting the boards](#limiting-the-boards).
-- **Never exposed:** `DELETE` routes, creating boards, and board-level changes (rename, owner,
-  public link, import).
+- **Reads:** every `GET` endpoint, except any `GET` that changes state (`SIDE_EFFECT_GET_PATTERNS` in
+  `src/aft_mcp/server.py`).
+- **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `src/aft_mcp/server.py`): edit or
+  move a card, set done status and assignees, archive/unarchive cards, add comments and checklist items, update
+  checklist items, add cards and columns, and rename or reorder columns.
+- **Never exposed:** `DELETE` routes, creating boards, and board-level changes (rename, owner, public link, import).
 
-## Requirements
+Read-only mode, a board allowlist and an audit log narrow this further: see [Access and auditing](docs/access.md).
 
-- Python 3.14+
-- [uv](https://docs.astral.sh/uv/)
+## Quickstart
 
-## Setup
+You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.14 itself if needed.
 
-With uvx (see [Connecting to Claude and agents](#connecting-to-claude-and-agents)), there is nothing to install: make
-a directory for the settings and put a `.env` in it, starting from [`.env.example`](.env.example). uv fetches Python
-3.14 itself if it needs to.
+1. **Make an AFT user for the agent.** In AFT's User Management, create a user (for example `claude`), make it
+   **API only**, give it access to the boards the agent should work on, and choose **Create API Token**.
 
-From a checkout:
+2. **Put the settings in a directory of their own**, readable only by you, for example `~/.config/aft-mcp/.env`
+   (`mkdir -p ~/.config/aft-mcp && chmod 700 ~/.config/aft-mcp`). Two settings are enough:
 
-```bash
-uv sync
-cp .env.example .env   # then edit .env
-```
+   ```dotenv
+   AFT_MCP_BASE_URL=https://aft.example.com
+   AFT_MCP_TOKEN=<the token from step 1>
+   ```
 
-## Configuration
+3. **Add it to Claude Code**, pinning `<ref>` to a release tag or commit:
 
-All settings come from the process environment, then from a `.env` file (a variable already set in the environment
-wins). The file is `.env` in the working directory; it is optional when the client passes every setting itself. Settings
-are loaded once at startup into a typed settings class (`aft_mcp.settings`, using
-[pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)). There are no defaults in the code,
-so a missing or invalid setting stops the server, and the error lists every bad setting at once. The token and password
-are never shown in reprs, logs or errors.
+   ```bash
+   claude mcp add aft -- uvx --directory ~/.config/aft-mcp --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+   ```
 
-[docs/settings.md](docs/settings.md) lists every variable, with its type, default and allowed values. The essentials:
+   Then ask Claude "What is on my AFT boards?", or check the connection with `/mcp`.
 
-| Variable            | Required | Description                                     |
-|---------------------|----------|-------------------------------------------------|
-| `AFT_MCP_BASE_URL`  | yes      | Base URL the generated tools call               |
-| `AFT_MCP_TIMEOUT`   | yes      | Request timeout in seconds                      |
-| `AFT_MCP_TOKEN`     | yes†     | AFT API token, sent as `Authorization: Bearer`  |
-| `AFT_MCP_USERNAME`  | yes†     | AFT account email, sent as HTTP basic auth      |
-| `AFT_MCP_PASSWORD`  | yes†     | AFT account password                            |
-| `AFT_MCP_READ_ONLY` | no       | `true` to expose only the safe reads, no writes |
-| `AFT_MCP_BOARD_IDS` | no       | Comma-separated board ids the tools may reach   |
+## Documentation
 
-The tools are built from AFT's own spec, fetched from `api/apispec.json` under `AFT_MCP_BASE_URL`;
-`AFT_MCP_SPEC_URL` or `AFT_MCP_SPEC_FILE` point somewhere else.
-
-† Set `AFT_MCP_TOKEN` (recommended), or both `AFT_MCP_USERNAME` and `AFT_MCP_PASSWORD`, not both ways.
-
-`.env` is git-ignored. Never commit real credentials.
-
-### Recommended: a dedicated AFT user
-
-Don't use your own AFT account. Create a separate user for the agent (for example `claude`), make it **API only**
-in User Management (it can't sign in to the web app), and choose **Create API Token** on it. Put the token in `.env`
-as `AFT_MCP_TOKEN`. Make the token read only if the agent only needs to look, and give it an expiry. On AFT versions
-without API tokens, use the user's email and password instead.
-
-- **Limit it to specific boards.** In AFT, give that user access only to the boards the agent should work on, with the
-  lowest role that does the job: a read-only role for boards it should only look at, an edit role for boards where it
-  should make changes. It then cannot see or touch anything else, whatever tools the MCP server exposes.
-- **Why not rely on the server alone?** This server's allowlist (see [What is exposed](#what-is-exposed)) limits which
-  *kinds* of action are possible. AFT's own permissions limit *which boards* they apply to. Use both, and set
-  `AFT_MCP_BOARD_IDS` as a second check on the boards (see below).
-- **Attribution.** Comments, edits and assignments made through the MCP are recorded against that user, so you can
-  tell the agent's work from yours. It can also be assigned cards.
-- **Revocation.** If the token leaks, revoke it in AFT (Manage API Tokens on the user) without changing anything
-  else. If the agent misbehaves, disable that one user without affecting your own account.
-
-The tools only work where the user has permission. A write on a board where it has read-only access is refused by AFT
-with a 403. `get_roles_my_roles` and `get_permissions_mapping` show what the user can currently do.
-
-### Limiting the boards
-
-`AFT_MCP_BOARD_IDS=12,15` guards against an AFT role granted too widely by mistake. When it is set, the server checks every
-request a tool sends, before it reaches AFT:
-
-- A request naming a board, column, card or checklist item (in the path, or as `board_id`, `column_id`, `card_id` or
-  `card_ids` in the query or body) is sent only if that item is on a listed board. Otherwise the tool fails with a 403
-  that names `AFT_MCP_BOARD_IDS`, and AFT never sees the request. Moving a card to a column on another board is refused
-  too, and so is an id that is not a plain number.
-- `get_boards` lists only the listed boards, and card search searches only them.
-- A few tools that are not about a board keep working: the user's own profile and roles, the permission model, and
-  the server's version, health, timezone and branding.
-- Every other tool is refused, because the server can't tell which boards it would reach. That includes global boards,
-  schedules, notifications and public board links, and any endpoint AFT adds later.
-
-To check an id, the server makes extra read requests as the same user: it reads each listed board's cards (once, and
-again when it meets a column or checklist item it doesn't know) and reads a card before acting on it. Unset
-`AFT_MCP_BOARD_IDS` to allow every board the AFT user can reach.
-
-## Running
-
-```bash
-uv run aft-mcp              # stdio transport; python -m aft_mcp does the same
-```
-
-### Audit log
-
-The server logs every tool call to stderr, allowed or refused, with [structlog](https://www.structlog.org/). Each HTTP
-request to AFT gets an `aft_response` line with its method, path and status, and each call ends with a `tool_result`
-line with the outcome (`ok` or `error`, plus the exception type) and its duration. Every line from one call carries the
-same `call` id, the `tool` and the id arguments it was called with (`*_id`, `*_ids`).
-
-```text
-timestamp=2026-11-23T12:00:01.204Z level=info logger=aft_mcp.audit event=aft_response call=0c3e3ff3 tool=patch_cards_done method=PATCH path=/api/cards/42/done status=200 card_id=42
-timestamp=2026-11-23T12:00:01.207Z level=info logger=aft_mcp.audit event=tool_result call=0c3e3ff3 tool=patch_cards_done outcome=ok duration_ms=81 card_id=42
-timestamp=2026-11-23T12:00:04.511Z level=info logger=aft_mcp.audit event=tool_result call=9b1d77e2 tool=delete_cards_by_card_id outcome=error error=NotFoundError duration_ms=1 card_id=42
-```
-
-The lines are [logfmt](https://brandur.org/logfmt) by default; set `AFT_MCP_LOG_FORMAT=json` for one JSON object per
-line, for log pipelines. Values are quoted and escaped, so a name sent by the client can't forge a line.
-
-FastMCP's and httpx's own log lines go through the same handler, in the same format, so stderr has one format
-throughout. A FastMCP error logged during a call carries that call's `call`, `tool` and id fields. httpx's per-request
-INFO lines are dropped, since `aft_response` covers them without the query string.
-
-Request and response bodies, query strings and error messages are never logged, so card text and credentials stay out
-of it. MCP clients keep stderr
-apart from the protocol stream; Claude Code and Claude Desktop write it to their MCP server logs.
-
-## Connecting to Claude and agents
-
-The server speaks MCP over stdio, so any MCP client launches it as a subprocess. There are two ways to give the client
-a command to run.
-
-### With uvx (no checkout)
-
-[`uvx`](https://docs.astral.sh/uv/guides/tools/) (part of uv) installs aft-mcp into a cached, isolated environment and
-runs it, so there is nothing to clone or keep in sync:
-
-```bash
-uvx --directory /path/to/aft-config --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
-```
-
-- **`--directory` is where the settings live.** uvx changes to that directory first, so the server reads the `.env`
-  there. Make it a directory of its own holding only that `.env` (start from [`.env.example`](.env.example)), readable
-  only by you. Always pass it: without it the server reads `.env` from whatever directory the client starts in.
-- **Pin `<ref>`** to a release tag (such as `v2026.11.0`) or a commit, never a branch. uvx installs the pinned version
-  once and reuses it, so the code only changes when you change the ref, after reading what changed. `@main` would
-  give a different server whenever `main` moves.
-- **Upgrading** is changing the ref in the client config and restarting the client. `uvx --refresh ...` rebuilds the
-  cached environment if it ever needs it.
-- **Without a `.env`**, leave out `--directory` and pass every setting as an environment variable in the client
-  config instead. That puts the password in the client config, so prefer the `.env`.
-
-Once aft-mcp is published to PyPI ([#21](https://github.com/samcorky/aft-mcp/issues/21)), `--from git+...` becomes
-`uvx --directory /path/to/aft-config aft-mcp@2026.11.0`.
-
-### From a checkout
-
-For development, or to run code you have reviewed locally, point the client at your clone. `uv run --directory`
-starts the server in the checkout, so it reads the `.env` there:
-
-```bash
-uv run --directory /path/to/aft-mcp aft-mcp
-```
-
-### Claude Code
-
-```bash
-claude mcp add aft -- uvx --directory /path/to/aft-config --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
-```
-
-Add `--scope user` to make it available in every project. Check it with `claude mcp list` or `/mcp` inside a session.
-From a checkout, use `claude mcp add aft -- uv run --directory /path/to/aft-mcp aft-mcp`.
-
-### Claude Desktop
-
-Add this to `claude_desktop_config.json` (Settings, then Developer, then Edit Config) and restart the app:
-
-```json
-{
-  "mcpServers": {
-    "aft": {
-      "command": "uvx",
-      "args": [
-        "--directory", "/path/to/aft-config",
-        "--from", "git+https://github.com/samcorky/aft-mcp@<ref>",
-        "aft-mcp"
-      ]
-    }
-  }
-}
-```
-
-Claude Desktop may not see the `PATH` of your shell; if it can't find `uvx`, give its full path as `command` (`which
-uvx`, or `where uvx` on Windows).
-
-### Claude Agent SDK
-
-```python
-from claude_agent_sdk import ClaudeAgentOptions, query
-
-options = ClaudeAgentOptions(
-    mcp_servers={
-        "aft": {
-            "command": "uvx",
-            "args": [
-                "--directory",
-                "/path/to/aft-config",
-                "--from",
-                "git+https://github.com/samcorky/aft-mcp@<ref>",
-                "aft-mcp",
-            ],
-        }
-    },
-    allowed_tools=["mcp__aft__*"],  # or list specific tools
-)
-
-async for message in query(prompt="What is on my AFT board?", options=options):
-    print(message)
-```
-
-### Other MCP clients
-
-Point the client at the same command over stdio: the `uvx` one above, or `uv run --directory /path/to/aft-mcp aft-mcp`
-from a checkout.
-
-### Tool names and permissions
-
-Clients prefix tool names with the server name, so `get_boards` appears as `mcp__aft__get_boards`. Use that form in
-permission rules. To keep an agent read-only, allow only the `get_*` tools:
-
-```json
-{ "permissions": { "allow": ["mcp__aft__get_*"] } }
-```
-
-The write tools are `patch_*`, `post_*` and `put_*`. To enforce this in the server rather than the client, set
-`AFT_MCP_READ_ONLY=true`: the write tools are then never created.
+- [Settings](docs/settings.md): every variable, with its type, default and allowed values. Start from
+  [`.env.example`](.env.example).
+- [Connecting clients](docs/clients.md): Claude Code, Claude Desktop, the Agent SDK and other MCP clients, running
+  from a checkout, and tool permissions.
+- [Access and auditing](docs/access.md): the dedicated AFT user, read-only mode, the board allowlist and the audit log.
 
 ## How it works
 
-The package lives in `src/aft_mcp/`, and the `aft-mcp` command runs `aft_mcp.server:main`.
-
-- `settings.py` loads and validates the configuration.
-- `server.py` fetches the spec, builds an authenticated HTTP client, and creates the FastMCP server.
-- `swagger_convert.py` is a small Swagger 2.0 to OpenAPI 3 converter. It handles body and form parameters, response
-  schemas, `definitions`, and basic auth. Specs that are already OpenAPI 3 pass through unchanged.
-
-## Notes
-
-- Credentials are held by the server, so every tool call acts as that one user. This is meant for local, single-user
-  use over stdio.
-- Only the `GET` conversion path has been exercised against a live API.
+aft-mcp fetches AFT's Swagger 2.0 spec, converts it to OpenAPI 3 (`swagger_convert.py`), and builds one MCP tool per
+allowed endpoint with [FastMCP](https://gofastmcp.com) (`server.py`). Settings are loaded and checked once at startup
+(`settings.py`). Every tool call acts as the one AFT user whose credentials the server holds, so it is meant for
+single-user use over stdio.
 
 ## Development
 
