@@ -6,7 +6,7 @@ invalid setting stops the server, and the error names every bad setting at once.
 """
 
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from urllib.parse import urljoin
 
 from pydantic import (
@@ -16,6 +16,7 @@ from pydantic import (
     SecretStr,
     ValidationError,
     field_validator,
+    model_validator,
 )
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
@@ -24,6 +25,12 @@ ENV_PREFIX = "AFT_MCP_"
 ENV_FILE = Path(".env")
 # Where AFT serves its own spec, relative to the base URL.
 DEFAULT_SPEC_PATH = "api/apispec.json"
+
+_TOKEN, _USER, _PASSWORD = (
+    f"{ENV_PREFIX}{n}" for n in ("TOKEN", "USERNAME", "PASSWORD")
+)
+NO_SIGN_IN = f"set {_TOKEN}, or both {_USER} and {_PASSWORD}"
+TWO_SIGN_INS = f"set {_TOKEN} or {_USER} and {_PASSWORD}, not both"
 
 
 class SettingsError(RuntimeError):
@@ -71,19 +78,34 @@ class Settings(BaseSettings):
         description="Request timeout in seconds.",
         examples=[30],
     )
-    username: str = Field(
+    # Sign in with an API token (sent as a Bearer token), or with a username and
+    # password (sent as HTTP Basic auth). Exactly one of the two.
+    token: SecretStr | None = Field(
+        default=None,
         min_length=1,
         description=(
-            "AFT account email, sent as HTTP basic auth. Use a dedicated "
-            + "user for the agent, not your own account."
+            "AFT API token, sent as `Authorization: Bearer` (recommended). Create "
+            + "it on an API-only user; set this, or both "
+            + f"`{_USER}` and `{_PASSWORD}`. It is never shown in reprs, logs "
+            + "or errors."
+        ),
+    )
+    username: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "AFT account email or username, sent as HTTP basic auth, for AFT "
+            + f"versions without API tokens. Needs `{_PASSWORD}`; not with "
+            + f"`{_TOKEN}`. Use a dedicated user for the agent, not your own account."
         ),
         examples=["agent@example.com"],
     )
-    password: SecretStr = Field(
+    password: SecretStr | None = Field(
+        default=None,
         min_length=1,
         description=(
-            "Password of that AFT account. It is never shown in reprs, logs "
-            + "or errors."
+            f"Password of the `{_USER}` account. It is never shown in reprs, "
+            + "logs or errors."
         ),
     )
     # Optional switches: unset means off, the behaviour before they existed.
@@ -114,6 +136,16 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [part.strip() for part in value.split(",") if part.strip()]
         return value
+
+    @model_validator(mode="after")
+    def _needs_one_way_to_sign_in(self) -> Self:
+        basic = (self.username, self.password)
+        if self.token is not None:
+            if basic != (None, None):
+                raise ValueError(TWO_SIGN_INS)
+        elif None in basic:
+            raise ValueError(NO_SIGN_IN)
+        return self
 
     @property
     def spec_location(self) -> str:

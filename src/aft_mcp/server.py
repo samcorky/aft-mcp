@@ -9,13 +9,21 @@ from fastmcp.server.providers.openapi import MCPType, RouteMap
 from aft_mcp import __version__
 from aft_mcp.audit import AuditLog, configure_logging, log_response
 from aft_mcp.board_guard import BoardGuard
-from aft_mcp.settings import ENV_FILE, Settings, SettingsError, load_settings
+from aft_mcp.settings import (
+    ENV_FILE,
+    NO_SIGN_IN,
+    Settings,
+    SettingsError,
+    load_settings,
+)
 from aft_mcp.swagger_convert import JSON, convert
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
     from pathlib import Path
 
     from fastmcp.utilities.openapi.models import HttpMethod
+    from pydantic import SecretStr
 
 
 def load_spec_from_file(path: Path) -> JSON:
@@ -42,6 +50,35 @@ def load_spec(settings: Settings) -> JSON:
     return convert(spec)
 
 
+class BearerAuth(httpx2.Auth):
+    """Send an AFT API token as ``Authorization: Bearer <token>``.
+
+    The token stays a ``SecretStr`` until a request is sent, so it never shows in a
+    repr of the client or its auth.
+    """
+
+    def __init__(self, token: SecretStr) -> None:
+        self._token = token
+
+    def auth_flow(
+        self, request: httpx2.Request
+    ) -> Generator[httpx2.Request, httpx2.Response]:
+        """Add the token to the request; AFT needs no challenge round trip."""
+        request.headers["Authorization"] = f"Bearer {self._token.get_secret_value()}"
+        yield request
+
+
+def build_auth(settings: Settings) -> httpx2.Auth:
+    """The API token if one is set, otherwise HTTP Basic auth."""
+    if settings.token is not None:
+        return BearerAuth(settings.token)
+    if settings.username is None or settings.password is None:
+        # Settings validation rules this out; checked again so it can never send
+        # an empty password.
+        raise SettingsError([NO_SIGN_IN])
+    return httpx2.BasicAuth(settings.username, settings.password.get_secret_value())
+
+
 def build_client(
     settings: Settings,
     transport: httpx2.AsyncBaseTransport | None = None,
@@ -59,7 +96,7 @@ def build_client(
     return httpx2.AsyncClient(
         base_url=str(settings.base_url),
         timeout=settings.timeout,
-        auth=(settings.username, settings.password.get_secret_value()),
+        auth=build_auth(settings),
         transport=transport,
         event_hooks={"response": [log_response]},
     )

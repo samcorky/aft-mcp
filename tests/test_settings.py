@@ -14,6 +14,7 @@ ALL_SETTINGS = [
     "AFT_MCP_READ_ONLY",
     "AFT_MCP_BOARD_IDS",
     "AFT_MCP_LOG_FORMAT",
+    "AFT_MCP_TOKEN",
 ]
 
 
@@ -35,7 +36,9 @@ def test_loads_every_setting_from_the_environment(aft_env: dict[str, str]) -> No
     assert str(loaded.spec_url) == aft_env["AFT_MCP_SPEC_URL"]
     assert loaded.spec_file is None
     assert loaded.timeout == 5.0
+    assert loaded.token is None
     assert loaded.username == "agent@example.com"
+    assert loaded.password is not None
     assert loaded.password.get_secret_value() == "secret"
 
 
@@ -79,8 +82,6 @@ def test_reports_every_missing_setting_at_once() -> None:
     assert problems() == [
         "AFT_MCP_BASE_URL: Field required",
         "AFT_MCP_TIMEOUT: Field required",
-        "AFT_MCP_USERNAME: Field required",
-        "AFT_MCP_PASSWORD: Field required",
     ]
 
 
@@ -132,7 +133,9 @@ def test_an_empty_value_counts_as_unset(
     monkeypatch.setenv("AFT_MCP_SPEC_FILE", "")
     assert load_settings(env_file=None).spec_file is None
     monkeypatch.setenv("AFT_MCP_PASSWORD", "")
-    assert problems() == ["AFT_MCP_PASSWORD: Field required"]
+    assert problems() == [
+        "set AFT_MCP_TOKEN, or both AFT_MCP_USERNAME and AFT_MCP_PASSWORD"
+    ]
 
 
 def test_read_only_is_off_unless_set(aft_env: dict[str, str]) -> None:
@@ -200,6 +203,58 @@ def test_board_ids_must_be_positive_numbers(
 def test_board_ids_can_be_given_as_a_set(aft_env: dict[str, str]) -> None:
     loaded = Settings(_env_file=None, board_ids=frozenset({12}))
     assert loaded.board_ids == frozenset({12})
+
+
+# --- signing in -------------------------------------------------------------------
+
+
+@pytest.fixture
+def token_env(monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]) -> None:
+    """Sign in with a token instead of the username and password from ``aft_env``."""
+    monkeypatch.delenv("AFT_MCP_USERNAME")
+    monkeypatch.delenv("AFT_MCP_PASSWORD")
+    monkeypatch.setenv("AFT_MCP_TOKEN", "aft_token_value")
+
+
+@pytest.mark.usefixtures("token_env")
+def test_loads_a_token_instead_of_a_username_and_password() -> None:
+    loaded = load_settings(env_file=None)
+    assert loaded.token is not None
+    assert loaded.token.get_secret_value() == "aft_token_value"
+    assert loaded.username is None
+    assert loaded.password is None
+
+
+@pytest.mark.usefixtures("token_env")
+@pytest.mark.parametrize("name", ["AFT_MCP_USERNAME", "AFT_MCP_PASSWORD"])
+def test_a_token_and_a_username_or_password_is_an_error(
+    monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    monkeypatch.setenv(name, "x")
+    assert problems() == [
+        "set AFT_MCP_TOKEN or AFT_MCP_USERNAME and AFT_MCP_PASSWORD, not both"
+    ]
+
+
+@pytest.mark.parametrize("name", ["AFT_MCP_USERNAME", "AFT_MCP_PASSWORD"])
+def test_a_username_needs_a_password_and_the_other_way_round(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], name: str
+) -> None:
+    monkeypatch.delenv(name)
+    assert problems() == [
+        "set AFT_MCP_TOKEN, or both AFT_MCP_USERNAME and AFT_MCP_PASSWORD"
+    ]
+
+
+@pytest.mark.usefixtures("token_env")
+def test_the_token_never_appears_in_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    loaded = load_settings(env_file=None)
+    assert "aft_token_value" not in repr(loaded)
+    assert "aft_token_value" not in str(loaded)
+    monkeypatch.setenv("AFT_MCP_USERNAME", "agent@example.com")
+    with pytest.raises(SettingsError) as raised:
+        load_settings(env_file=None)
+    assert "aft_token_value" not in str(raised.value)
 
 
 def test_the_password_never_appears_in_output(
