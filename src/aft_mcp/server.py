@@ -9,7 +9,7 @@ from fastmcp.server.providers.openapi import MCPType, RouteMap
 from aft_mcp import __version__
 from aft_mcp.audit import AuditLog, configure_logging, log_response
 from aft_mcp.board_guard import BoardGuard
-from aft_mcp.settings import Settings, SettingsError, env_file_path, load_settings
+from aft_mcp.settings import ENV_FILE, Settings, SettingsError, load_settings
 from aft_mcp.swagger_convert import JSON, convert
 
 if TYPE_CHECKING:
@@ -34,11 +34,11 @@ def load_spec_from_url(url: str, timeout: float) -> JSON:
 
 
 def load_spec(settings: Settings) -> JSON:
-    """Load the spec as OpenAPI 3, from AFT_SPEC_FILE if set, else AFT_SPEC_URL."""
+    """Load the spec as OpenAPI 3: from the spec file if set, else over HTTP."""
     if settings.spec_file is not None:
         spec = load_spec_from_file(settings.spec_file)
     else:
-        spec = load_spec_from_url(str(settings.spec_url), settings.timeout)
+        spec = load_spec_from_url(settings.spec_location, settings.timeout)
     return convert(spec)
 
 
@@ -132,7 +132,7 @@ def create_server(settings: Settings) -> FastMCP:
 def main() -> None:
     """Load the settings, build the server and serve it over stdio."""
     try:
-        settings = load_settings(env_file_path())
+        settings = load_settings(ENV_FILE)
     except SettingsError as error:
         sys.exit(str(error))  # exits with status 1, the message on stderr
     configure_logging(settings.log_format)

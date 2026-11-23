@@ -1,4 +1,4 @@
-"""Keep every AFT request inside the boards named by ``AFT_BOARD_IDS``.
+"""Keep every AFT request inside the boards named by ``AFT_MCP_BOARD_IDS``.
 
 AFT's own roles decide which boards the agent's user can reach. This guard is a
 second check in the server, against a role granted too widely by mistake. It sits
@@ -71,7 +71,7 @@ def _id_number(field: str, value: object) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     raise BoardRefusedError(
-        f"{field} must be a plain number while AFT_BOARD_IDS is set"
+        f"{field} must be a plain number while AFT_MCP_BOARD_IDS is set"
     )
 
 
@@ -97,7 +97,7 @@ def _ids_in_body(request: httpx2.Request) -> Iterator[tuple[str, int]]:
         card_ids = body[CARD_IDS]
         if not isinstance(card_ids, list):
             raise BoardRefusedError(
-                f"{CARD_IDS} must be a list of card ids while AFT_BOARD_IDS is set"
+                f"{CARD_IDS} must be a list of card ids while AFT_MCP_BOARD_IDS is set"
             )
         for card_id in card_ids:
             yield "card", _id_number(CARD_IDS, card_id)
@@ -155,7 +155,7 @@ class BoardGuard(httpx2.AsyncBaseTransport):
         raw_path = request.url.raw_path.partition(b"?")[0]
         if b"%" in raw_path or b"/." in raw_path:
             # An encoded or relative segment could be read differently by AFT.
-            raise BoardRefusedError(f"{path} is refused while AFT_BOARD_IDS is set")
+            raise BoardRefusedError(f"{path} is refused while AFT_MCP_BOARD_IDS is set")
         for pattern, kind in ID_IN_PATH:
             if match := pattern.match(path):
                 await self._require(kind, int(match[1]), request)
@@ -167,14 +167,14 @@ class BoardGuard(httpx2.AsyncBaseTransport):
             or SCOPED_BY_BODY.match(path)
             or NOT_ABOUT_A_BOARD.match(path)
         ):
-            reason = "can't be limited to the boards in AFT_BOARD_IDS"
+            reason = "can't be limited to the boards in AFT_MCP_BOARD_IDS"
             raise BoardRefusedError(f"{path} {reason}, so it is refused")
 
     async def _require(self, kind: str, item_id: int, request: httpx2.Request) -> None:
         """Raise BoardRefusedError unless the item is on an allowed board."""
         if await self._board_of(kind, item_id, request) not in self._boards:
             raise BoardRefusedError(
-                f"{kind} {item_id} is not on a board allowed by AFT_BOARD_IDS"
+                f"{kind} {item_id} is not on a board allowed by AFT_MCP_BOARD_IDS"
             )
 
     async def _board_of(
@@ -211,7 +211,9 @@ class BoardGuard(httpx2.AsyncBaseTransport):
         if asked:
             boards &= {int(part) for part in asked.split(",") if part.strip().isdigit()}
         if not boards:
-            raise BoardRefusedError("none of the boards searched are in AFT_BOARD_IDS")
+            raise BoardRefusedError(
+                "none of the boards searched are in AFT_MCP_BOARD_IDS"
+            )
         board_ids = ",".join(str(board) for board in sorted(boards))
         request.url = request.url.copy_set_param("board_ids", board_ids)
 

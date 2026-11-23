@@ -44,6 +44,7 @@ cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true 
 
 [dependency-groups]
 dev = [
+    "calver-scm[cli]>=1.13.1",
     "mypy>=2.4.1",
     "poethepoet>=0.49.0",
     "prek>=0.5.11",
@@ -64,6 +65,8 @@ check = { sequence = ["format-check", "lint", "types", "test"], help = "Run ever
 fmt = { cmd = "ruff format .", help = "Format code" }
 lint-fix = { cmd = "ruff check --fix .", help = "Apply auto-fixable lint fixes" }
 fix = { sequence = ["fmt", "lint-fix"], help = "Apply formatting and auto-fixable lint fixes" }
+settings-docs = { cmd = "python scripts/settings_reference.py", help = "Regenerate .env.example and docs/settings.md from the Settings class" }
+settings-docs-check = { cmd = "python scripts/settings_reference.py --check", help = "Fail when .env.example or docs/settings.md is out of date (as CI does)" }
 build = { cmd = "uv build --clear", help = "Build the wheel and sdist into dist/" }
 _test-wheel = { shell = "uv run --isolated --frozen --only-group dev --with dist/*.whl pytest --no-cov -q" }
 _test-sdist = { shell = "uv run --isolated --frozen --only-group dev --with dist/*.tar.gz pytest --no-cov -q" }
@@ -71,6 +74,8 @@ build-check = { sequence = ["build", "_test-wheel", "_test-sdist"], help = "Buil
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# scripts/ holds tools, not the package; the tests import them by module name.
+pythonpath = ["scripts"]
 markers = [
     "e2e: launches the server as a subprocess over stdio (slower; skipped on pre-push)",
 ]
@@ -167,7 +172,7 @@ docstring-code-format = true
 plugins = ["pydantic.mypy"]
 strict = true
 files = ["src", "scripts", "tests"]
-mypy_path = "src"
+mypy_path = ["src", "scripts"]
 python_version = "3.14"
 explicit_package_bases = true
 warn_unused_configs = true

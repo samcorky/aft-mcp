@@ -46,7 +46,8 @@ run them. There are three layers:
 |---------------------------------|---------------------------------------------------------------------------------------------|
 | `tests/test_swagger_convert.py` | The Swagger 2.0 to OpenAPI 3 converter                                                      |
 | `tests/test_settings.py`        | Loading and validating the settings, and keeping the password out of output                 |
-| `tests/test_board_guard.py`     | The board allowlist (`AFT_BOARD_IDS`): what it refuses, narrows and lets through            |
+| `tests/test_settings_reference.py` | The settings reference generator (`scripts/settings_reference.py`)                     |
+| `tests/test_board_guard.py`     | The board allowlist (`AFT_MCP_BOARD_IDS`): what it refuses, narrows and lets through            |
 | `tests/test_audit.py`           | The audit log lines written for each tool call, and their per-call fields                   |
 | `tests/test_server.py`          | Configuration, spec loading, and which endpoints become tools (with the reviewed snapshots) |
 | `tests/test_mcp.py`             | A real MCP client: handshake, tool calls and the HTTP each one sends to a stubbed AFT, plus an `e2e` test that runs `python -m aft_mcp` over stdio against a local fake AFT |
@@ -57,6 +58,12 @@ the README).
 ## Common tasks
 
 Run `uv run poe` to list every task.
+
+`.env.example` and `docs/settings.md` are generated from the `Settings` class in
+`src/aft_mcp/settings.py` by `scripts/settings_reference.py`, using each field's
+description and example. After adding or changing a setting, run
+`uv run poe settings-docs`. CI and a pre-commit hook (`uv run poe settings-docs-check`)
+fail while either file is out of date.
 
 | Task                     | Does                                                         |
 |--------------------------|--------------------------------------------------------------|
@@ -104,7 +111,8 @@ of the project, so changes to it get extra care:
 - Keep each pull request to one focused change.
 - Give it a [Conventional Commits](https://www.conventionalcommits.org/) title, such as
   `feat: add a tool for card labels`, `fix(converter): ...` or `docs: ...`. Add `!`
-  after the type (`feat!:`) for a breaking change, such as renaming a tool.
+  after the type (`feat!:`) for a breaking change, such as renaming a tool, and fill in
+  the "What's breaking" section of the template: what breaks and what to change.
 - Say `Closes #123` in the description to link the issue.
 - Two checks must pass before merging: `CI passed` (lint, types and tests) and
   `Hooks: prek (autofix)` (every other hook).
@@ -143,7 +151,7 @@ no label for the kind of change; add one by hand and it reruns.
 
 | Label                                            | From                                               |
 |--------------------------------------------------|----------------------------------------------------|
-| `breaking-change`                                | `!` after the type, or `BREAKING CHANGE` in the body |
+| `breaking-change`                                | `!` after the type, a "What's breaking" section, or `BREAKING CHANGE` in the body |
 | `enhancement`                                    | `feat:`                                            |
 | `bug`                                            | `fix:`                                             |
 | `performance`                                    | `perf:`                                            |

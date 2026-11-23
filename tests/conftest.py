@@ -16,18 +16,18 @@ if TYPE_CHECKING:
 type LogRecords = Callable[[], list[dict[str, Any]]]
 
 ENV = {
-    "AFT_BASE_URL": "https://aft.test",
-    "AFT_SPEC_URL": "https://aft.test/api/apispec.json",
-    "AFT_TIMEOUT": "5",
-    "AFT_USERNAME": "agent@example.com",
-    "AFT_PASSWORD": "secret",
+    "AFT_MCP_BASE_URL": "https://aft.test",
+    "AFT_MCP_SPEC_URL": "https://aft.test/api/apispec.json",
+    "AFT_MCP_TIMEOUT": "5",
+    "AFT_MCP_USERNAME": "agent@example.com",
+    "AFT_MCP_PASSWORD": "secret",
 }
 
 
 @pytest.fixture
 def aft_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """Set every required AFT_* setting, and clear every other AFT_* variable."""
-    for name in [name for name in os.environ if name.startswith("AFT_")]:
+    """Set every required AFT_MCP_* setting, and clear every other one."""
+    for name in [name for name in os.environ if name.startswith("AFT_MCP_")]:
         monkeypatch.delenv(name)
     for name, value in ENV.items():
         monkeypatch.setenv(name, value)

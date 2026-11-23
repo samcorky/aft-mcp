@@ -26,9 +26,9 @@ OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://g
 - **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `src/aft_mcp/server.py`): edit or move a
   card, set done status and assignees, archive/unarchive cards, add comments and checklist items, update checklist
   items, add cards and columns, and rename or reorder columns.
-- **Read-only mode:** with `AFT_READ_ONLY=true` no writes are exposed at all, only the reads above. Use it for a
+- **Read-only mode:** with `AFT_MCP_READ_ONLY=true` no writes are exposed at all, only the reads above. Use it for a
   look-only connection, such as a second instance against a production AFT.
-- **Board allowlist:** with `AFT_BOARD_IDS=12,15` the tools only reach those boards. See
+- **Board allowlist:** with `AFT_MCP_BOARD_IDS=12,15` the tools only reach those boards. See
   [Limiting the boards](#limiting-the-boards).
 - **Never exposed:** `DELETE` routes, creating boards, and board-level changes (rename, owner,
   public link, import).
@@ -48,26 +48,25 @@ cp .env.example .env   # then edit .env
 ## Configuration
 
 All settings come from the process environment, then from a `.env` file (a variable already set in the environment
-wins). The file is `.env` in the working directory, or the one `AFT_ENV_FILE` names; it is optional when the client
-passes every setting itself. Settings are loaded once at startup into a typed settings class (`aft_mcp.settings`, using
+wins). The file is `.env` in the working directory; it is optional when the client passes every setting itself. Settings
+are loaded once at startup into a typed settings class (`aft_mcp.settings`, using
 [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)). There are no defaults in the code,
 so a missing or invalid setting stops the server, and the error lists every bad setting at once. The password is never
 shown in reprs, logs or errors.
 
-| Variable        | Required | Description                                                            |
-|-----------------|----------|------------------------------------------------------------------------|
-| `AFT_BASE_URL`  | yes      | Base URL the generated tools call (`http://` or `https://`)            |
-| `AFT_SPEC_URL`  | yes*     | URL of the Swagger 2.0 / OpenAPI spec                                  |
-| `AFT_TIMEOUT`   | yes      | Request timeout in seconds, above zero                                 |
-| `AFT_USERNAME`  | yes      | AFT account email, sent as HTTP basic auth                             |
-| `AFT_PASSWORD`  | yes      | AFT account password                                                   |
-| `AFT_SPEC_FILE` | no       | Load the spec from a local file instead of `AFT_SPEC_URL`              |
-| `AFT_READ_ONLY` | no       | `true` to expose only the safe reads, no writes (default `false`)      |
-| `AFT_BOARD_IDS` | no       | Comma-separated board ids the tools may reach (default: every board)    |
-| `AFT_LOG_FORMAT`| no       | Audit log format on stderr: `logfmt` (default) or `json`               |
-| `AFT_ENV_FILE`  | no       | Path of the `.env` file to read, instead of `./.env` (environment only) |
+[docs/settings.md](docs/settings.md) lists every variable, with its type, default and allowed values. The essentials:
 
-\* Not needed when `AFT_SPEC_FILE` is set.
+| Variable            | Required | Description                                     |
+|---------------------|----------|-------------------------------------------------|
+| `AFT_MCP_BASE_URL`  | yes      | Base URL the generated tools call               |
+| `AFT_MCP_TIMEOUT`   | yes      | Request timeout in seconds                      |
+| `AFT_MCP_USERNAME`  | yes      | AFT account email, sent as HTTP basic auth      |
+| `AFT_MCP_PASSWORD`  | yes      | AFT account password                            |
+| `AFT_MCP_READ_ONLY` | no       | `true` to expose only the safe reads, no writes |
+| `AFT_MCP_BOARD_IDS` | no       | Comma-separated board ids the tools may reach   |
+
+The tools are built from AFT's own spec, fetched from `api/apispec.json` under `AFT_MCP_BASE_URL`;
+`AFT_MCP_SPEC_URL` or `AFT_MCP_SPEC_FILE` point somewhere else.
 
 `.env` is git-ignored. Never commit real credentials.
 
@@ -81,7 +80,7 @@ password in `.env`.
   should make changes. It then cannot see or touch anything else, whatever tools the MCP server exposes.
 - **Why not rely on the server alone?** This server's allowlist (see [What is exposed](#what-is-exposed)) limits which
   *kinds* of action are possible. AFT's own permissions limit *which boards* they apply to. Use both, and set
-  `AFT_BOARD_IDS` as a second check on the boards (see below).
+  `AFT_MCP_BOARD_IDS` as a second check on the boards (see below).
 - **Attribution.** Comments, edits and assignments made through the MCP are recorded against that user, so you can
   tell the agent's work from yours. It can also be assigned cards.
 - **Revocation.** If the credentials leak or the agent misbehaves, disable that one user without affecting your own
@@ -92,12 +91,12 @@ with a 403. `get_roles_my_roles` and `get_permissions_mapping` show what the use
 
 ### Limiting the boards
 
-`AFT_BOARD_IDS=12,15` guards against an AFT role granted too widely by mistake. When it is set, the server checks every
+`AFT_MCP_BOARD_IDS=12,15` guards against an AFT role granted too widely by mistake. When it is set, the server checks every
 request a tool sends, before it reaches AFT:
 
 - A request naming a board, column, card or checklist item (in the path, or as `board_id`, `column_id`, `card_id` or
   `card_ids` in the query or body) is sent only if that item is on a listed board. Otherwise the tool fails with a 403
-  that names `AFT_BOARD_IDS`, and AFT never sees the request. Moving a card to a column on another board is refused
+  that names `AFT_MCP_BOARD_IDS`, and AFT never sees the request. Moving a card to a column on another board is refused
   too, and so is an id that is not a plain number.
 - `get_boards` lists only the listed boards, and card search searches only them.
 - A few tools that are not about a board keep working: the user's own profile and roles, the permission model, and
@@ -107,7 +106,7 @@ request a tool sends, before it reaches AFT:
 
 To check an id, the server makes extra read requests as the same user: it reads each listed board's cards (once, and
 again when it meets a column or checklist item it doesn't know) and reads a card before acting on it. Unset
-`AFT_BOARD_IDS` to allow every board the AFT user can reach.
+`AFT_MCP_BOARD_IDS` to allow every board the AFT user can reach.
 
 ## Running
 
@@ -128,8 +127,8 @@ timestamp=2026-11-23T12:00:01.207Z level=info logger=aft_mcp.audit event=tool_re
 timestamp=2026-11-23T12:00:04.511Z level=info logger=aft_mcp.audit event=tool_result call=9b1d77e2 tool=delete_cards_by_card_id outcome=error error=NotFoundError duration_ms=1 card_id=42
 ```
 
-The lines are [logfmt](https://brandur.org/logfmt) by default; set `AFT_LOG_FORMAT=json` for one JSON object per line,
-for log pipelines. Values are quoted and escaped, so a name sent by the client can't forge a line.
+The lines are [logfmt](https://brandur.org/logfmt) by default; set `AFT_MCP_LOG_FORMAT=json` for one JSON object per
+line, for log pipelines. Values are quoted and escaped, so a name sent by the client can't forge a line.
 
 FastMCP's and httpx's own log lines go through the same handler, in the same format, so stderr has one format
 throughout. A FastMCP error logged during a call carries that call's `call`, `tool` and id fields. httpx's per-request
@@ -146,7 +145,7 @@ your checkout, so it reads the `.env` there and the client config needs no secre
 
 Use the full path to your checkout in place of `/path/to/aft-mcp` in the examples below. To run it without a checkout,
 use `uvx --from git+https://github.com/samcorky/aft-mcp aft-mcp` as the command, and pass the settings as environment
-variables in the client config or point `AFT_ENV_FILE` at a `.env` file.
+variables in the client config.
 
 ### Claude Code
 
@@ -204,7 +203,7 @@ permission rules. To keep an agent read-only, allow only the `get_*` tools:
 ```
 
 The write tools are `patch_*`, `post_*` and `put_*`. To enforce this in the server rather than the client, set
-`AFT_READ_ONLY=true`: the write tools are then never created.
+`AFT_MCP_READ_ONLY=true`: the write tools are then never created.
 
 ## How it works
 

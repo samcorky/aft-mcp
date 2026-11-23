@@ -220,7 +220,7 @@ def test_load_spec_fetches_the_url(
 ) -> None:
     seen = stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
     assert server.load_spec(settings)["openapi"] == "3.0.3"
-    assert [str(r.url) for r in seen] == [aft_env["AFT_SPEC_URL"]]
+    assert [str(r.url) for r in seen] == [aft_env["AFT_MCP_SPEC_URL"]]
 
 
 # --- assembling and running -------------------------------------------------------
@@ -259,13 +259,13 @@ def test_main_exits_listing_every_settings_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fail(_env_file: Path | None) -> Settings:
-        raise SettingsError(["AFT_BASE_URL: missing", "AFT_TIMEOUT: missing"])
+        raise SettingsError(["AFT_MCP_BASE_URL: missing", "AFT_MCP_TIMEOUT: missing"])
 
     monkeypatch.setattr(server, "load_settings", fail)
     with pytest.raises(SystemExit) as exited:
         server.main()
-    assert "AFT_BASE_URL: missing" in str(exited.value.code)
-    assert "AFT_TIMEOUT: missing" in str(exited.value.code)
+    assert "AFT_MCP_BASE_URL: missing" in str(exited.value.code)
+    assert "AFT_MCP_TIMEOUT: missing" in str(exited.value.code)
 
 
 def test_importing_the_module_has_no_side_effects() -> None:

@@ -1,4 +1,4 @@
-"""The board allowlist (AFT_BOARD_IDS), tested through a real httpx client.
+"""The board allowlist (AFT_MCP_BOARD_IDS), tested through a real httpx client.
 
 Board 12 is allowed and board 99 is not. ``FakeAft`` serves both, and records every
 request that reached it, so each test can check what the guard let through.
@@ -94,7 +94,7 @@ async def client(fake_aft: FakeAft) -> AsyncIterator[httpx2.AsyncClient]:
 def refusal(response: httpx2.Response) -> str:
     assert response.status_code == 403
     error: str = response.json()["error"]
-    assert "AFT_BOARD_IDS" in error
+    assert "AFT_MCP_BOARD_IDS" in error
     return error
 
 
@@ -114,7 +114,8 @@ async def test_a_board_off_the_list_never_reaches_aft(
 ) -> None:
     response = await client.get(f"/api/boards/{OTHER}")
     assert (
-        refusal(response) == f"board {OTHER} is not on a board allowed by AFT_BOARD_IDS"
+        refusal(response)
+        == f"board {OTHER} is not on a board allowed by AFT_MCP_BOARD_IDS"
     )
     assert fake_aft.requests == []
 

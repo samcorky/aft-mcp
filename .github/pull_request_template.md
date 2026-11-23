@@ -10,6 +10,15 @@ group the release notes (see "Labels" in CONTRIBUTING.md).
 
 Closes #
 
+## What's breaking
+
+<!--
+Delete this section unless the change breaks something people rely on, such as a
+setting, a tool's name or how the server is started. Say what breaks and what to
+change. The heading adds the breaking-change label, which puts the pull request
+under "Breaking changes" in the release notes.
+-->
+
 ## Type of change
 
 - [ ] Bug fix (non-breaking change that resolves an issue)

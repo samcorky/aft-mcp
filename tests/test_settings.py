@@ -2,20 +2,18 @@ from pathlib import Path
 
 import pytest
 
-from aft_mcp import settings as settings_module
-from aft_mcp.settings import Settings, SettingsError, load_settings
+from aft_mcp.settings import ENV_FILE, Settings, SettingsError, load_settings
 
 ALL_SETTINGS = [
-    "AFT_BASE_URL",
-    "AFT_SPEC_URL",
-    "AFT_SPEC_FILE",
-    "AFT_TIMEOUT",
-    "AFT_USERNAME",
-    "AFT_PASSWORD",
-    "AFT_ENV_FILE",
-    "AFT_READ_ONLY",
-    "AFT_BOARD_IDS",
-    "AFT_LOG_FORMAT",
+    "AFT_MCP_BASE_URL",
+    "AFT_MCP_SPEC_URL",
+    "AFT_MCP_SPEC_FILE",
+    "AFT_MCP_TIMEOUT",
+    "AFT_MCP_USERNAME",
+    "AFT_MCP_PASSWORD",
+    "AFT_MCP_READ_ONLY",
+    "AFT_MCP_BOARD_IDS",
+    "AFT_MCP_LOG_FORMAT",
 ]
 
 
@@ -34,7 +32,7 @@ def problems(env_file: Path | None = None) -> list[str]:
 def test_loads_every_setting_from_the_environment(aft_env: dict[str, str]) -> None:
     loaded = load_settings(env_file=None)
     assert str(loaded.base_url) == "https://aft.test/"
-    assert str(loaded.spec_url) == aft_env["AFT_SPEC_URL"]
+    assert str(loaded.spec_url) == aft_env["AFT_MCP_SPEC_URL"]
     assert loaded.spec_file is None
     assert loaded.timeout == 5.0
     assert loaded.username == "agent@example.com"
@@ -45,11 +43,11 @@ def test_loads_every_setting_from_the_environment(aft_env: dict[str, str]) -> No
 def test_reads_the_env_file(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
     lines = [
-        "AFT_BASE_URL=https://aft.test",
-        "AFT_SPEC_FILE=spec.json",
-        "AFT_TIMEOUT=2",
-        "AFT_USERNAME=agent@example.com",
-        "AFT_PASSWORD=secret",
+        "AFT_MCP_BASE_URL=https://aft.test",
+        "AFT_MCP_SPEC_FILE=spec.json",
+        "AFT_MCP_TIMEOUT=2",
+        "AFT_MCP_USERNAME=agent@example.com",
+        "AFT_MCP_PASSWORD=secret",
         "OTHER_TOOL=1",  # settings for other tools are ignored
     ]
     env_file.write_text("\n".join(lines), encoding="utf-8")
@@ -63,70 +61,78 @@ def test_the_environment_wins_over_the_env_file(
     aft_env: dict[str, str], tmp_path: Path
 ) -> None:
     env_file = tmp_path / ".env"
-    env_file.write_text("AFT_TIMEOUT=99\n", encoding="utf-8")
+    env_file.write_text("AFT_MCP_TIMEOUT=99\n", encoding="utf-8")
     assert load_settings(env_file=env_file).timeout == 5.0
 
 
-def test_env_file_is_dot_env_in_the_working_directory_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("AFT_ENV_FILE", raising=False)
-    assert settings_module.env_file_path() == Path(".env")
-
-
-def test_aft_env_file_names_another_env_file(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setenv("AFT_ENV_FILE", str(tmp_path / "aft.env"))
-    assert settings_module.env_file_path() == tmp_path / "aft.env"
+def test_the_env_file_is_dot_env_in_the_working_directory() -> None:
+    assert Path(".env") == ENV_FILE
 
 
 def test_a_missing_env_file_leaves_the_environment(aft_env: dict[str, str]) -> None:
     missing = Path("no-such-dir") / ".env"
-    assert load_settings(env_file=missing).username == aft_env["AFT_USERNAME"]
+    assert load_settings(env_file=missing).username == aft_env["AFT_MCP_USERNAME"]
 
 
 @pytest.mark.usefixtures("no_env")
 def test_reports_every_missing_setting_at_once() -> None:
     assert problems() == [
-        "AFT_BASE_URL: Field required",
-        "AFT_TIMEOUT: Field required",
-        "AFT_USERNAME: Field required",
-        "AFT_PASSWORD: Field required",
+        "AFT_MCP_BASE_URL: Field required",
+        "AFT_MCP_TIMEOUT: Field required",
+        "AFT_MCP_USERNAME: Field required",
+        "AFT_MCP_PASSWORD: Field required",
     ]
 
 
-def test_needs_a_spec_url_or_file(
-    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
+@pytest.mark.parametrize(
+    ("base_url", "spec"),
+    [
+        ("https://aft.test", "https://aft.test/api/apispec.json"),
+        ("https://aft.test/", "https://aft.test/api/apispec.json"),
+        # AFT served under a path keeps that path.
+        ("https://host.test/aft/", "https://host.test/aft/api/apispec.json"),
+    ],
+)
+def test_the_spec_url_defaults_to_afts_own(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], base_url: str, spec: str
 ) -> None:
-    monkeypatch.delenv("AFT_SPEC_URL")
-    assert problems() == ["set AFT_SPEC_URL or AFT_SPEC_FILE"]
+    monkeypatch.delenv("AFT_MCP_SPEC_URL")
+    monkeypatch.setenv("AFT_MCP_BASE_URL", base_url)
+    loaded = load_settings(env_file=None)
+    assert loaded.spec_url is None
+    assert loaded.spec_location == spec
+
+
+def test_a_set_spec_url_is_used_as_is(settings: Settings) -> None:
+    assert settings.spec_location == "https://aft.test/api/apispec.json"
+    other = settings.model_copy(update={"spec_url": "https://elsewhere.test/s.json"})
+    assert other.spec_location == "https://elsewhere.test/s.json"
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "soon"])
 def test_rejects_a_bad_timeout(
     monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], value: str
 ) -> None:
-    monkeypatch.setenv("AFT_TIMEOUT", value)
+    monkeypatch.setenv("AFT_MCP_TIMEOUT", value)
     (problem,) = problems()
-    assert problem.startswith("AFT_TIMEOUT: ")
+    assert problem.startswith("AFT_MCP_TIMEOUT: ")
 
 
 def test_rejects_a_base_url_that_is_not_http(
     monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
 ) -> None:
-    monkeypatch.setenv("AFT_BASE_URL", "aft.test")
+    monkeypatch.setenv("AFT_MCP_BASE_URL", "aft.test")
     (problem,) = problems()
-    assert problem.startswith("AFT_BASE_URL: ")
+    assert problem.startswith("AFT_MCP_BASE_URL: ")
 
 
 def test_an_empty_value_counts_as_unset(
     monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
 ) -> None:
-    monkeypatch.setenv("AFT_SPEC_FILE", "")
+    monkeypatch.setenv("AFT_MCP_SPEC_FILE", "")
     assert load_settings(env_file=None).spec_file is None
-    monkeypatch.setenv("AFT_PASSWORD", "")
-    assert problems() == ["AFT_PASSWORD: Field required"]
+    monkeypatch.setenv("AFT_MCP_PASSWORD", "")
+    assert problems() == ["AFT_MCP_PASSWORD: Field required"]
 
 
 def test_read_only_is_off_unless_set(aft_env: dict[str, str]) -> None:
@@ -139,16 +145,16 @@ def test_read_only_is_off_unless_set(aft_env: dict[str, str]) -> None:
 def test_read_only_accepts_true_or_false(
     monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], value: str, expected: bool
 ) -> None:
-    monkeypatch.setenv("AFT_READ_ONLY", value)
+    monkeypatch.setenv("AFT_MCP_READ_ONLY", value)
     assert load_settings(env_file=None).read_only is expected
 
 
 def test_read_only_rejects_anything_else(
     monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
 ) -> None:
-    monkeypatch.setenv("AFT_READ_ONLY", "maybe")
+    monkeypatch.setenv("AFT_MCP_READ_ONLY", "maybe")
     (problem,) = problems()
-    assert problem.startswith("AFT_READ_ONLY: ")
+    assert problem.startswith("AFT_MCP_READ_ONLY: ")
 
 
 def test_log_format_is_logfmt_unless_set(aft_env: dict[str, str]) -> None:
@@ -158,11 +164,11 @@ def test_log_format_is_logfmt_unless_set(aft_env: dict[str, str]) -> None:
 def test_log_format_accepts_json_and_rejects_anything_else(
     monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
 ) -> None:
-    monkeypatch.setenv("AFT_LOG_FORMAT", "json")
+    monkeypatch.setenv("AFT_MCP_LOG_FORMAT", "json")
     assert load_settings(env_file=None).log_format == "json"
-    monkeypatch.setenv("AFT_LOG_FORMAT", "xml")
+    monkeypatch.setenv("AFT_MCP_LOG_FORMAT", "xml")
     (problem,) = problems()
-    assert problem.startswith("AFT_LOG_FORMAT: ")
+    assert problem.startswith("AFT_MCP_LOG_FORMAT: ")
 
 
 def test_board_ids_allow_every_board_unless_set(aft_env: dict[str, str]) -> None:
@@ -178,7 +184,7 @@ def test_board_ids_are_a_comma_separated_list(
     value: str,
     expected: set[int],
 ) -> None:
-    monkeypatch.setenv("AFT_BOARD_IDS", value)
+    monkeypatch.setenv("AFT_MCP_BOARD_IDS", value)
     assert load_settings(env_file=None).board_ids == frozenset(expected)
 
 
@@ -186,9 +192,9 @@ def test_board_ids_are_a_comma_separated_list(
 def test_board_ids_must_be_positive_numbers(
     monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], value: str
 ) -> None:
-    monkeypatch.setenv("AFT_BOARD_IDS", value)
+    monkeypatch.setenv("AFT_MCP_BOARD_IDS", value)
     (problem,) = problems()
-    assert problem.startswith("AFT_BOARD_IDS: ")
+    assert problem.startswith("AFT_MCP_BOARD_IDS: ")
 
 
 def test_board_ids_can_be_given_as_a_set(aft_env: dict[str, str]) -> None:
@@ -202,7 +208,7 @@ def test_the_password_never_appears_in_output(
     loaded = load_settings(env_file=None)
     assert "secret" not in repr(loaded)
     assert "secret" not in str(loaded)
-    monkeypatch.setenv("AFT_TIMEOUT", "never")
+    monkeypatch.setenv("AFT_MCP_TIMEOUT", "never")
     with pytest.raises(SettingsError) as raised:
         load_settings(env_file=None)
     assert "secret" not in str(raised.value)
@@ -211,7 +217,9 @@ def test_the_password_never_appears_in_output(
 
 
 def test_the_error_message_lists_each_problem() -> None:
-    error = SettingsError(["AFT_A: bad", "AFT_B: bad"])
+    error = SettingsError(["AFT_MCP_A: bad", "AFT_MCP_B: bad"])
     assert str(error) == (
-        "Invalid AFT settings (set them in .env):\n  - AFT_A: bad\n  - AFT_B: bad"
+        "Invalid AFT settings (set them in .env):\n"
+        + "  - AFT_MCP_A: bad\n"
+        + "  - AFT_MCP_B: bad"
     )

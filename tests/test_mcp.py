@@ -120,7 +120,7 @@ async def test_read_tool_calls_aft_with_basic_auth(
     assert request.method == "GET"
     assert str(request.url) == "https://aft.test/api/boards"
     assert request.headers["Authorization"] == basic_auth(
-        aft_env["AFT_USERNAME"], aft_env["AFT_PASSWORD"]
+        aft_env["AFT_MCP_USERNAME"], aft_env["AFT_MCP_PASSWORD"]
     )
 
 
@@ -194,7 +194,7 @@ async def test_board_allowlist_refuses_a_tool_call_for_another_board(
 
     assert not allowed.is_error
     assert refused.is_error
-    assert "AFT_BOARD_IDS" in str(refused.content[0])
+    assert "AFT_MCP_BOARD_IDS" in str(refused.content[0])
     assert [r.url.path for r in fake_aft.requests] == ["/api/boards/12"]
 
 
@@ -317,7 +317,7 @@ def local_aft(aft_env: dict[str, str]) -> Iterator[tuple[str, list[tuple[str, st
         {
             "seen": seen,
             "expected_auth": basic_auth(
-                aft_env["AFT_USERNAME"], aft_env["AFT_PASSWORD"]
+                aft_env["AFT_MCP_USERNAME"], aft_env["AFT_MCP_PASSWORD"]
             ),
         },
     )
@@ -343,7 +343,7 @@ async def test_stdio_server_lists_tools_and_calls_aft(
     spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
     # Run from an empty directory with every setting passed, so a developer's own
     # .env never applies.
-    env = {**aft_env, "AFT_BASE_URL": base_url, "AFT_SPEC_FILE": str(spec_file)}
+    env = {**aft_env, "AFT_MCP_BASE_URL": base_url, "AFT_MCP_SPEC_FILE": str(spec_file)}
     workdir = tmp_path / "cwd"
     workdir.mkdir()
     transport = StdioTransport(
@@ -357,5 +357,5 @@ async def test_stdio_server_lists_tools_and_calls_aft(
     assert "get_boards" in names
     assert not {n for n in names if n.startswith("delete_")}
     assert result.structured_content == {"result": BOARDS}
-    auth = basic_auth(aft_env["AFT_USERNAME"], aft_env["AFT_PASSWORD"])
+    auth = basic_auth(aft_env["AFT_MCP_USERNAME"], aft_env["AFT_MCP_PASSWORD"])
     assert seen == [("/api/boards", auth)]

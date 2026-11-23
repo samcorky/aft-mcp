@@ -72,7 +72,10 @@ jobs:
             if (scope && scope.toLowerCase().split(/[,/ ]+/).includes('security')) {
               labels.add('security');
             }
-            if (bang || /BREAKING CHANGE/.test(pr.body || '')) labels.add('breaking-change');
+            const body = pr.body || '';
+            if (bang || /BREAKING CHANGE|^## What's breaking/m.test(body)) {
+              labels.add('breaking-change');
+            }
             if (labels.size === 0) return;
             await github.rest.issues.addLabels({
               ...context.repo,
