@@ -23,7 +23,8 @@ without API tokens, use the user's email and password instead.
   else. If the agent misbehaves, disable that one user without affecting your own account.
 
 The tools only work where the user has permission. A write on a board where it has read-only access is refused by AFT
-with a 403. `get_roles_my_roles` and `get_permissions_mapping` show what the user can currently do.
+with a 403. `get_auth_me` returns the user's effective `permissions`; `get_roles_my_roles` needs a role-management
+permission, so it returns 403 for a normal user.
 
 ## Read-only mode
 

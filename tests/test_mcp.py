@@ -393,3 +393,52 @@ async def test_stdio_server_lists_tools_and_calls_aft(
     assert result.structured_content == {"result": BOARDS}
     auth = basic_auth(aft_env["AFT_MCP_USERNAME"], aft_env["AFT_MCP_PASSWORD"])
     assert seen == [("/api/boards", auth)]
+
+
+CARD_SPEC: dict[str, Any] = {
+    "swagger": "2.0",
+    "info": {"title": "AFT", "version": "1"},
+    "basePath": "/",
+    "paths": {
+        "/api/cards/{card_id}": {
+            "get": {
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "card_id",
+                        "type": "integer",
+                        "required": True,
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "card": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": {"type": "string"},
+                                        "end_date": {"type": "string"},
+                                    },
+                                }
+                            },
+                        },
+                    }
+                },
+            }
+        }
+    },
+}
+
+
+@pytest.mark.parametrize("aft_like_spec", [CARD_SPEC])
+async def test_a_null_field_in_a_result_is_not_a_tool_error(
+    client: Client[Any], fake_aft: FakeAft
+) -> None:
+    # AFT returns null for a card's missing dates, though its spec says string.
+    fake_aft.payload = {"card": {"title": "Plan", "end_date": None}}
+    result = await client.call_tool("get_cards_by_card_id", {"card_id": 7})
+    assert not result.is_error
+    assert result.structured_content == {"card": {"title": "Plan", "end_date": None}}
