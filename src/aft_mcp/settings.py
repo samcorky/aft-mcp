@@ -1,10 +1,12 @@
 """Settings for the AFT MCP server, loaded and validated once at startup.
 
-Values come from the process environment first, then from the ``.env`` file next to
-this module. There are no defaults in the code for required settings: a missing or
-invalid setting stops the server, and the error names every bad setting at once.
+Values come from the process environment first, then from a ``.env`` file: the one
+named by ``AFT_ENV_FILE``, or ``.env`` in the working directory. There are no defaults
+in the code for required settings: a missing or invalid setting stops the server, and
+the error names every bad setting at once.
 """
 
+import os
 from pathlib import Path
 from typing import Self
 
@@ -12,7 +14,8 @@ from pydantic import Field, HttpUrl, SecretStr, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_PREFIX = "AFT_"
-ENV_FILE = Path(__file__).resolve().parent / ".env"
+# Names the .env file to read; it is not a field, so set it in the environment.
+ENV_FILE_VARIABLE = "AFT_ENV_FILE"
 
 
 class SettingsError(RuntimeError):
@@ -31,7 +34,7 @@ class Settings(BaseSettings):
         env_prefix=ENV_PREFIX,
         env_file_encoding="utf-8",
         env_ignore_empty=True,  # AFT_SPEC_FILE= in .env means unset, not "."
-        extra="ignore",  # .env may hold settings for other tools
+        extra="ignore",  # .env may hold settings for other tools, and AFT_ENV_FILE
         frozen=True,
     )
 
@@ -61,13 +64,22 @@ def _describe(error: ValidationError) -> list[str]:
     return problems
 
 
-def load_settings(env_file: Path | None = ENV_FILE) -> Settings:
+def env_file_path() -> Path:
+    """The ``.env`` file to read: ``AFT_ENV_FILE`` if set, else ``./.env``.
+
+    A missing file is fine: the settings then come from the environment alone, as
+    when an MCP client passes them in its own configuration.
+    """
+    return Path(os.environ.get(ENV_FILE_VARIABLE) or ".env")
+
+
+def load_settings(env_file: Path | None) -> Settings:
     """Read and validate every setting.
 
     Args:
-        env_file: The ``.env`` file to read after the environment, or None to read
-            the environment only (as the tests do, so a developer's ``.env`` never
-            applies).
+        env_file: The ``.env`` file to read after the environment (usually
+            ``env_file_path()``), or None to read the environment only, as the tests
+            do so that a developer's ``.env`` never applies.
 
     Raises:
         SettingsError: Naming every missing or invalid setting.

@@ -5,13 +5,13 @@
 "area: server":
   - changed-files:
       - any-glob-to-any-file:
-          - "server.py"
-          - "settings.py"
+          - "src/aft_mcp/server.py"
+          - "src/aft_mcp/settings.py"
 
 "area: converter":
   - changed-files:
       - any-glob-to-any-file:
-          - "swagger_convert.py"
+          - "src/aft_mcp/swagger_convert.py"
 
 documentation:
   - changed-files:

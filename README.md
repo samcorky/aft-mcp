@@ -22,8 +22,8 @@ OpenAPI 3, and exposes selected endpoints as MCP tools using [FastMCP](https://g
 
 ## What is exposed
 
-- **Reads:** every `GET` endpoint, except any `GET` that changes state (`SIDE_EFFECT_GET_PATTERNS` in `server.py`).
-- **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `server.py`): edit or move a
+- **Reads:** every `GET` endpoint, except any `GET` that changes state (`SIDE_EFFECT_GET_PATTERNS` in `src/aft_mcp/server.py`).
+- **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `src/aft_mcp/server.py`): edit or move a
   card, set done status and assignees, archive/unarchive cards, add comments and checklist items, update checklist
   items, add cards and columns, and rename or reorder columns.
 - **Never exposed:** `DELETE` routes, creating boards, and board-level changes (rename, owner,
@@ -43,8 +43,9 @@ cp .env.example .env   # then edit .env
 
 ## Configuration
 
-All settings come from the process environment, then from `.env` (a variable already set in the environment wins).
-They are loaded once at startup into a typed settings class (`settings.py`, using
+All settings come from the process environment, then from a `.env` file (a variable already set in the environment
+wins). The file is `.env` in the working directory, or the one `AFT_ENV_FILE` names; it is optional when the client
+passes every setting itself. Settings are loaded once at startup into a typed settings class (`aft_mcp.settings`, using
 [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)). There are no defaults in the code,
 so a missing or invalid setting stops the server, and the error lists every bad setting at once. The password is never
 shown in reprs, logs or errors.
@@ -57,6 +58,7 @@ shown in reprs, logs or errors.
 | `AFT_USERNAME`  | yes      | AFT account email, sent as HTTP basic auth                             |
 | `AFT_PASSWORD`  | yes      | AFT account password                                                   |
 | `AFT_SPEC_FILE` | no       | Load the spec from a local file instead of `AFT_SPEC_URL`              |
+| `AFT_ENV_FILE`  | no       | Path of the `.env` file to read, instead of `./.env` (environment only) |
 
 \* Not needed when `AFT_SPEC_FILE` is set.
 
@@ -84,20 +86,22 @@ with a 403. `get_roles_my_roles` and `get_permissions_mapping` show what the use
 ## Running
 
 ```bash
-uv run python server.py     # stdio transport
+uv run aft-mcp              # stdio transport; python -m aft_mcp does the same
 ```
 
 ## Connecting to Claude and agents
 
-The server speaks MCP over stdio, so any MCP client launches it as a subprocess. Credentials come from the `.env`
-next to `server.py`, so the client config needs no secrets and the working directory doesn't matter.
+The server speaks MCP over stdio, so any MCP client launches it as a subprocess. `uv run --directory` starts it in
+your checkout, so it reads the `.env` there and the client config needs no secrets.
 
-Use the full path to your checkout in place of `/path/to/aft-mcp` in the examples below.
+Use the full path to your checkout in place of `/path/to/aft-mcp` in the examples below. To run it without a checkout,
+use `uvx --from git+https://github.com/samcorky/aft-mcp aft-mcp` as the command, and pass the settings as environment
+variables in the client config or point `AFT_ENV_FILE` at a `.env` file.
 
 ### Claude Code
 
 ```bash
-claude mcp add aft -- uv run --directory /path/to/aft-mcp python server.py
+claude mcp add aft -- uv run --directory /path/to/aft-mcp aft-mcp
 ```
 
 Add `--scope user` to make it available in every project. Check it with `claude mcp list` or `/mcp` inside a session.
@@ -111,7 +115,7 @@ Add this to `claude_desktop_config.json` (Settings, then Developer, then Edit Co
   "mcpServers": {
     "aft": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/aft-mcp", "python", "server.py"]
+      "args": ["run", "--directory", "/path/to/aft-mcp", "aft-mcp"]
     }
   }
 }
@@ -126,7 +130,7 @@ options = ClaudeAgentOptions(
     mcp_servers={
         "aft": {
             "command": "uv",
-            "args": ["run", "--directory", "/path/to/aft-mcp", "python", "server.py"],
+            "args": ["run", "--directory", "/path/to/aft-mcp", "aft-mcp"],
         }
     },
     allowed_tools=["mcp__aft__*"],  # or list specific tools
@@ -138,7 +142,7 @@ async for message in query(prompt="What is on my AFT board?", options=options):
 
 ### Other MCP clients
 
-Point the client at the same command: `uv run --directory /path/to/aft-mcp python server.py` over stdio.
+Point the client at the same command: `uv run --directory /path/to/aft-mcp aft-mcp` over stdio.
 
 ### Tool names and permissions
 
@@ -152,6 +156,8 @@ permission rules. To keep an agent read-only, allow only the `get_*` tools:
 The write tools are `patch_*`, `post_*` and `put_*`.
 
 ## How it works
+
+The package lives in `src/aft_mcp/`, and the `aft-mcp` command runs `aft_mcp.server:main`.
 
 - `settings.py` loads and validates the configuration.
 - `server.py` fetches the spec, builds an authenticated HTTP client, and creates the FastMCP server.

@@ -3,8 +3,8 @@
 The in-memory tests connect a real FastMCP client to the server built by
 ``server.create_server()`` and check the HTTP requests each tool call sends to AFT,
 which is stubbed with ``httpx2.MockTransport``. The ``e2e`` test launches
-``python server.py`` over stdio, as Claude Code or Claude Desktop would, against a
-local HTTP server standing in for AFT.
+``python -m aft_mcp`` (what the ``aft-mcp`` command runs) over stdio, as Claude Code
+or Claude Desktop would, against a local HTTP server standing in for AFT.
 """
 
 import base64
@@ -12,7 +12,6 @@ import json
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx2
@@ -20,16 +19,16 @@ import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
-import server
+from aft_mcp import server
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
+    from pathlib import Path
 
-    from settings import Settings
+    from aft_mcp.settings import Settings
 
 pytestmark = pytest.mark.anyio
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 BOARDS = [{"id": 12, "name": "Development"}]
 
 
@@ -226,11 +225,13 @@ async def test_stdio_server_lists_tools_and_calls_aft(
     base_url, seen = local_aft
     spec_file = tmp_path / "spec.json"
     spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
-    # Every setting is passed explicitly, so a developer's own .env never applies:
-    # pydantic-settings reads the environment before any .env file.
+    # Run from an empty directory with every setting passed, so a developer's own
+    # .env never applies.
     env = {**aft_env, "AFT_BASE_URL": base_url, "AFT_SPEC_FILE": str(spec_file)}
+    workdir = tmp_path / "cwd"
+    workdir.mkdir()
     transport = StdioTransport(
-        command=sys.executable, args=["server.py"], env=env, cwd=str(REPO_ROOT)
+        command=sys.executable, args=["-m", "aft_mcp"], env=env, cwd=str(workdir)
     )
 
     async with Client(transport) as stdio_client:

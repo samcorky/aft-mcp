@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from settings import Settings, load_settings
+from aft_mcp.settings import Settings, load_settings
 
 ENV = {
     "AFT_BASE_URL": "https://aft.test",

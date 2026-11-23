@@ -6,8 +6,8 @@ import httpx2
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
-from settings import Settings, SettingsError, load_settings
-from swagger_convert import JSON, convert
+from aft_mcp.settings import Settings, SettingsError, env_file_path, load_settings
+from aft_mcp.swagger_convert import JSON, convert
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -116,11 +116,7 @@ def create_server(settings: Settings) -> FastMCP:
 def main() -> None:
     """Load the settings, build the server and serve it over stdio."""
     try:
-        settings = load_settings()
+        settings = load_settings(env_file_path())
     except SettingsError as error:
         sys.exit(str(error))  # exits with status 1, the message on stderr
     create_server(settings).run()
-
-
-if __name__ == "__main__":
-    main()

@@ -1,14 +1,16 @@
 import asyncio
 import json
+import runpy
+from importlib.metadata import entry_points
 from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
 from fastmcp import FastMCP
 
-import server
-from settings import Settings, SettingsError
-from swagger_convert import convert
+from aft_mcp import server
+from aft_mcp.settings import Settings, SettingsError
+from aft_mcp.swagger_convert import convert
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -215,7 +217,7 @@ def test_main_loads_the_settings_then_runs(
         def run(self) -> None:
             calls.append("run")
 
-    monkeypatch.setattr(server, "load_settings", lambda: settings)
+    monkeypatch.setattr(server, "load_settings", lambda _env_file: settings)
     monkeypatch.setattr(server, "create_server", FakeServer)
     server.main()
     assert calls == [settings, "run"]
@@ -224,7 +226,7 @@ def test_main_loads_the_settings_then_runs(
 def test_main_exits_listing_every_settings_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fail() -> Settings:
+    def fail(_env_file: Path | None) -> Settings:
         raise SettingsError(["AFT_BASE_URL: missing", "AFT_TIMEOUT: missing"])
 
     monkeypatch.setattr(server, "load_settings", fail)
@@ -238,3 +240,15 @@ def test_importing_the_module_has_no_side_effects() -> None:
     # Regression: the server used to be built at import time, which needed the
     # network and a full .env just to import it.
     assert not hasattr(server, "mcp")
+
+
+def test_python_m_aft_mcp_runs_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(server, "main", lambda: calls.append("main"))
+    runpy.run_module("aft_mcp", run_name="__main__")
+    assert calls == ["main"]
+
+
+def test_installs_the_aft_mcp_command() -> None:
+    (script,) = entry_points(group="console_scripts", name="aft-mcp")
+    assert script.value == "aft_mcp.server:main"

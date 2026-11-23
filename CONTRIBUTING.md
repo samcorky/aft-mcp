@@ -47,7 +47,7 @@ run them. There are three layers:
 | `tests/test_swagger_convert.py` | The Swagger 2.0 to OpenAPI 3 converter                                                      |
 | `tests/test_settings.py`        | Loading and validating the settings, and keeping the password out of output                 |
 | `tests/test_server.py`          | Configuration, spec loading, and which endpoints become tools (with the reviewed snapshots) |
-| `tests/test_mcp.py`             | A real MCP client: handshake, tool calls and the HTTP each one sends to a stubbed AFT, plus an `e2e` test that runs `python server.py` over stdio against a local fake AFT |
+| `tests/test_mcp.py`             | A real MCP client: handshake, tool calls and the HTTP each one sends to a stubbed AFT, plus an `e2e` test that runs `python -m aft_mcp` over stdio against a local fake AFT |
 
 To try the server against a real AFT, copy `.env.example` to `.env` and fill it in (see
 the README).
@@ -76,13 +76,13 @@ The ruff and mypy settings follow the conventions of
 - `mypy --strict`, over the tests as well.
 - No `from __future__ import annotations`: on Python 3.14 annotations are already
   evaluated lazily, so imports used only in annotations go under `if TYPE_CHECKING:`.
-- `JSON` (in `swagger_convert.py`) is the type for spec fragments.
-- Every setting is a field on `Settings` in `settings.py`; code takes a `Settings`
+- `JSON` (in `aft_mcp.swagger_convert`) is the type for spec fragments.
+- Every setting is a field on `Settings` in `aft_mcp.settings`; code takes a `Settings`
   rather than reading the environment itself.
 
 ## Changing what is exposed
 
-`server.py` decides which AFT endpoints become tools. This is the main safety boundary
+`src/aft_mcp/server.py` decides which AFT endpoints become tools. This is the main safety boundary
 of the project, so changes to it get extra care:
 
 - Reads: every `GET` is exposed unless it matches `SIDE_EFFECT_GET_PATTERNS`. If you find
@@ -132,7 +132,7 @@ no label for the kind of change; add one by hand and it reruns.
 | `security`                                       | `security:` or a `(security)` scope                |
 | `dependencies`                                   | Renovate, or a change only to the lock and manifest files |
 | `maintenance`, `tests`, `CI/CD`, `documentation` | `chore:`, `refactor:`, `build:`, `style:`, `test:`, `ci:`, `docs:`, and matching files |
-| `area: server`, `area: converter`                | Changes to `server.py` or `swagger_convert.py` (where, not what; added automatically) |
+| `area: server`, `area: converter`                | Changes to the server and settings, or to the converter, in `src/aft_mcp/` (where, not what; added automatically) |
 | `skip-release-notes`                             | Added by hand to leave a pull request out          |
 
 ## Issues

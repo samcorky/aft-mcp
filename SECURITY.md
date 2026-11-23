@@ -23,7 +23,7 @@ Vulnerabilities in AFT itself belong to the [AFT project](https://github.com/sje
 This server holds an AFT user's credentials and lets an AI agent act as that user, so
 these are in scope:
 
-- A tool that can perform a write outside the allowlist in `server.py` (`ALLOWED_WRITES`),
+- A tool that can perform a write outside the allowlist in `src/aft_mcp/server.py` (`ALLOWED_WRITES`),
   including any `DELETE` route or board-level change, or a `GET` with a side effect that
   is not excluded.
 - Credentials from `.env` leaking into tool output, logs, error messages or the spec.

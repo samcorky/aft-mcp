@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-import settings as settings_module
-from settings import SettingsError, load_settings
+from aft_mcp import settings as settings_module
+from aft_mcp.settings import SettingsError, load_settings
 
 ALL_SETTINGS = [
     "AFT_BASE_URL",
@@ -12,6 +12,7 @@ ALL_SETTINGS = [
     "AFT_TIMEOUT",
     "AFT_USERNAME",
     "AFT_PASSWORD",
+    "AFT_ENV_FILE",
 ]
 
 
@@ -63,9 +64,23 @@ def test_the_environment_wins_over_the_env_file(
     assert load_settings(env_file=env_file).timeout == 5.0
 
 
-def test_reads_the_env_file_next_to_the_module_by_default() -> None:
-    module_dir = Path(settings_module.__file__).resolve().parent
-    assert module_dir / ".env" == settings_module.ENV_FILE
+def test_env_file_is_dot_env_in_the_working_directory_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AFT_ENV_FILE", raising=False)
+    assert settings_module.env_file_path() == Path(".env")
+
+
+def test_aft_env_file_names_another_env_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AFT_ENV_FILE", str(tmp_path / "aft.env"))
+    assert settings_module.env_file_path() == tmp_path / "aft.env"
+
+
+def test_a_missing_env_file_leaves_the_environment(aft_env: dict[str, str]) -> None:
+    missing = Path("no-such-dir") / ".env"
+    assert load_settings(env_file=missing).username == aft_env["AFT_USERNAME"]
 
 
 @pytest.mark.usefixtures("no_env")
