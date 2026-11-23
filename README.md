@@ -95,11 +95,14 @@ with a 403. `get_roles_my_roles` and `get_permissions_mapping` show what the use
 request a tool sends, before it reaches AFT:
 
 - A request naming a board, column, card or checklist item (in the path, or as `board_id`, `column_id`, `card_id` or
-  `card_ids` in the body) is sent only if that item is on a listed board. Otherwise the tool fails with a 403 that
-  names `AFT_BOARD_IDS`, and AFT never sees the request. Moving a card to a column on another board is refused too.
+  `card_ids` in the query or body) is sent only if that item is on a listed board. Otherwise the tool fails with a 403
+  that names `AFT_BOARD_IDS`, and AFT never sees the request. Moving a card to a column on another board is refused
+  too, and so is an id that is not a plain number.
 - `get_boards` lists only the listed boards, and card search searches only them.
-- Global boards, schedules and public board links span boards, so their tools are refused.
-- Tools that are not about a board, such as the user's profile, roles and notifications, work as before.
+- A few tools that are not about a board keep working: the user's own profile and roles, the permission model, and
+  the server's version, health, timezone and branding.
+- Every other tool is refused, because the server can't tell which boards it would reach. That includes global boards,
+  schedules, notifications and public board links, and any endpoint AFT adds later.
 
 To check an id, the server makes extra read requests as the same user: it reads each listed board's cards (once, and
 again when it meets a column or checklist item it doesn't know) and reads a card before acting on it. Unset

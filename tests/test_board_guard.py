@@ -199,43 +199,93 @@ async def test_moving_a_card_to_a_column_off_the_list_is_refused(
 async def test_a_batch_with_any_card_off_the_list_is_refused(
     client: httpx2.AsyncClient, fake_aft: FakeAft
 ) -> None:
-    refusal(
-        await client.post("/api/cards/batch/archive", json={"card_ids": [1000, 9000]})
-    )
-    ok = await client.post("/api/cards/batch/archive", json={"card_ids": [1000, "x"]})
-    assert ok.status_code == 200
-    assert fake_aft.paths().count("/api/cards/batch/archive") == 1
+    batch = "/api/cards/batch/archive"
+    refusal(await client.post(batch, json={"card_ids": [1000, 9000]}))
+    assert (await client.post(batch, json={"card_ids": [1000]})).status_code == 200
+    assert fake_aft.paths().count(batch) == 1
 
 
 async def test_board_and_card_ids_in_a_body_are_checked(
     client: httpx2.AsyncClient,
 ) -> None:
-    refusal(await client.post("/api/anything", json={"board_id": OTHER}))
-    refusal(await client.post("/api/anything", json={"card_id": 9000}))
-    assert (
-        await client.post("/api/anything", json={"card_id": 1000})
-    ).status_code == 200
+    comments = "/api/cards/1000/comments"
+    refusal(await client.post(comments, json={"board_id": OTHER}))
+    refusal(await client.post(comments, json={"card_id": 9000}))
+    assert (await client.post(comments, json={"card_id": 1000})).status_code == 200
 
 
-@pytest.mark.parametrize("content", [b"not json", b"[1, 2]", b'{"card_ids": null}'])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"column_id": "900"},  # AFT might read a string as a number
+        {"column_id": None},
+        {"board_id": True},  # True == 1 in Python
+        {"card_ids": [1000, "9000"]},
+        {"card_ids": None},
+        {"card_ids": "9000"},
+    ],
+)
+async def test_an_id_that_is_not_a_plain_number_is_refused(
+    client: httpx2.AsyncClient, fake_aft: FakeAft, body: dict[str, Any]
+) -> None:
+    refusal(await client.patch("/api/cards/1000", json=body))
+    assert "PATCH" not in [r.method for r in fake_aft.requests]
+
+
+@pytest.mark.parametrize("content", [b"not json", b"[1, 2]", b'{"title": "x"}'])
 async def test_bodies_without_ids_are_sent_as_they_are(
     client: httpx2.AsyncClient, fake_aft: FakeAft, content: bytes
 ) -> None:
-    response = await client.post("/api/notifications", content=content)
+    response = await client.post("/api/cards/1000/comments", content=content)
     assert response.status_code == 200
     assert fake_aft.requests[-1].content == content
 
 
-# --- routes across boards -------------------------------------------------------------
+async def test_ids_in_the_query_are_checked(
+    client: httpx2.AsyncClient, fake_aft: FakeAft
+) -> None:
+    cards = f"/api/boards/{ALLOWED}/cards"
+    refusal(await client.get(cards, params={"column_id": "900"}))
+    refusal(await client.get(cards, params={"card_id": "x"}))
+    assert (await client.get(cards, params={"column_id": "100"})).status_code == 200
+    assert fake_aft.requests[-1].url.params["column_id"] == "100"
+
+
+# --- routes across boards ------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "path", ["/api/global-boards", "/api/global-boards/3/cards", "/api/schedules/7"]
+    "path",
+    [
+        "/api/global-boards",
+        "/api/global-boards/3/cards",
+        "/api/schedules/7",
+        "/api/notifications",
+        "/api/roles/boards",
+        "/api/public/boards/team/cards/1000",
+        "/api/something-new",
+    ],
 )
-async def test_routes_that_span_boards_are_refused(
+async def test_routes_the_guard_cannot_scope_are_refused(
     client: httpx2.AsyncClient, fake_aft: FakeAft, path: str
 ) -> None:
-    assert "spans boards" in refusal(await client.get(path))
+    assert "can't be limited" in refusal(await client.get(path))
+    assert fake_aft.requests == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [f"/api/boards/{ALLOWED}%2F..%2F{OTHER}", f"/api/boards/{ALLOWED}/%2e%2e/{OTHER}"],
+)
+async def test_encoded_or_relative_paths_are_refused(
+    fake_aft: FakeAft, path: str
+) -> None:
+    guard = BoardGuard(httpx2.MockTransport(fake_aft), frozenset({ALLOWED}))
+    request = httpx2.Request(
+        "GET", httpx2.URL("https://aft.test").copy_with(raw_path=path.encode())
+    )
+    response = await guard.handle_async_request(request)
+    refusal(response)
     assert fake_aft.requests == []
 
 
