@@ -7,6 +7,7 @@ import pytest
 from fastmcp import FastMCP
 
 import server
+from settings import Settings, SettingsError
 from swagger_convert import convert
 
 if TYPE_CHECKING:
@@ -121,29 +122,12 @@ def test_each_allowed_write_is_narrow(method: str, pattern: str) -> None:
     assert pattern != "^/api/boards$", "creating boards is not allowed"
 
 
-# --- configuration ----------------------------------------------------------------
+# --- the HTTP client ---------------------------------------------------------------
 
 
-def test_require_env_returns_the_value(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AFT_X", "1")
-    assert server.require_env("AFT_X") == "1"
-
-
-@pytest.mark.parametrize("value", [None, ""])
-def test_require_env_fails_clearly_when_missing_or_empty(
-    monkeypatch: pytest.MonkeyPatch, value: str | None
-) -> None:
-    if value is None:
-        monkeypatch.delenv("AFT_X", raising=False)
-    else:
-        monkeypatch.setenv("AFT_X", value)
-    with pytest.raises(RuntimeError, match="Missing required setting AFT_X"):
-        server.require_env("AFT_X")
-
-
-def test_build_client_uses_the_settings(aft_env: dict[str, str]) -> None:
-    client = server.build_client()
-    assert str(client.base_url) == "https://aft.test"
+def test_build_client_uses_the_settings(settings: Settings) -> None:
+    client = server.build_client(settings)
+    assert str(client.base_url) == "https://aft.test/"
     assert client.timeout.read == 5.0
     request = client.build_request("GET", "/api/boards")
     auth_flow = client._build_request_auth(request).auth_flow(request)
@@ -183,24 +167,25 @@ def test_load_spec_from_url_raises_on_http_error(
 def test_load_spec_prefers_the_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    aft_env: dict[str, str],
+    settings: Settings,
     aft_like_spec: dict[str, Any],
 ) -> None:
     path = tmp_path / "spec.json"
     path.write_text(json.dumps(aft_like_spec), encoding="utf-8")
-    monkeypatch.setenv("AFT_SPEC_FILE", str(path))
     seen = stub_http(monkeypatch, lambda _: httpx2.Response(500))
-    assert server.load_spec()["openapi"] == "3.0.3"
+    from_file = settings.model_copy(update={"spec_file": path})
+    assert server.load_spec(from_file)["openapi"] == "3.0.3"
     assert seen == []
 
 
 def test_load_spec_fetches_the_url(
     monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
     aft_env: dict[str, str],
     aft_like_spec: dict[str, Any],
 ) -> None:
     seen = stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
-    assert server.load_spec()["openapi"] == "3.0.3"
+    assert server.load_spec(settings)["openapi"] == "3.0.3"
     assert [str(r.url) for r in seen] == [aft_env["AFT_SPEC_URL"]]
 
 
@@ -209,26 +194,44 @@ def test_load_spec_fetches_the_url(
 
 def test_create_server(
     monkeypatch: pytest.MonkeyPatch,
-    aft_env: dict[str, str],
+    settings: Settings,
     aft_like_spec: dict[str, Any],
 ) -> None:
     stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
-    mcp = server.create_server()
+    mcp = server.create_server(settings)
     assert mcp.name == "AFT"
     assert "get_boards" in {t.name for t in asyncio.run(mcp.list_tools())}
 
 
-def test_main_loads_dotenv_then_runs(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
+def test_main_loads_the_settings_then_runs(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    calls: list[object] = []
 
     class FakeServer:
+        def __init__(self, given: Settings) -> None:
+            calls.append(given)
+
         def run(self) -> None:
             calls.append("run")
 
-    monkeypatch.setattr(server, "load_dotenv", lambda: calls.append("dotenv"))
+    monkeypatch.setattr(server, "load_settings", lambda: settings)
     monkeypatch.setattr(server, "create_server", FakeServer)
     server.main()
-    assert calls == ["dotenv", "run"]
+    assert calls == [settings, "run"]
+
+
+def test_main_exits_listing_every_settings_problem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail() -> Settings:
+        raise SettingsError(["AFT_BASE_URL: missing", "AFT_TIMEOUT: missing"])
+
+    monkeypatch.setattr(server, "load_settings", fail)
+    with pytest.raises(SystemExit) as exited:
+        server.main()
+    assert "AFT_BASE_URL: missing" in str(exited.value.code)
+    assert "AFT_TIMEOUT: missing" in str(exited.value.code)
 
 
 def test_importing_the_module_has_no_side_effects() -> None:

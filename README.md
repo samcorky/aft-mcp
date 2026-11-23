@@ -43,14 +43,17 @@ cp .env.example .env   # then edit .env
 
 ## Configuration
 
-All settings come from `.env` (or the process environment). There are no defaults in the code, so a missing
-required setting stops the server at startup with a clear message.
+All settings come from the process environment, then from `.env` (a variable already set in the environment wins).
+They are loaded once at startup into a typed settings class (`settings.py`, using
+[pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)). There are no defaults in the code,
+so a missing or invalid setting stops the server, and the error lists every bad setting at once. The password is never
+shown in reprs, logs or errors.
 
 | Variable        | Required | Description                                                            |
 |-----------------|----------|------------------------------------------------------------------------|
-| `AFT_BASE_URL`  | yes      | Base URL the generated tools call                                      |
+| `AFT_BASE_URL`  | yes      | Base URL the generated tools call (`http://` or `https://`)            |
 | `AFT_SPEC_URL`  | yes*     | URL of the Swagger 2.0 / OpenAPI spec                                  |
-| `AFT_TIMEOUT`   | yes      | Request timeout in seconds                                             |
+| `AFT_TIMEOUT`   | yes      | Request timeout in seconds, above zero                                 |
 | `AFT_USERNAME`  | yes      | AFT account email, sent as HTTP basic auth                             |
 | `AFT_PASSWORD`  | yes      | AFT account password                                                   |
 | `AFT_SPEC_FILE` | no       | Load the spec from a local file instead of `AFT_SPEC_URL`              |
@@ -150,7 +153,8 @@ The write tools are `patch_*`, `post_*` and `put_*`.
 
 ## How it works
 
-- `server.py` loads config, fetches the spec, builds an authenticated HTTP client, and creates the FastMCP server.
+- `settings.py` loads and validates the configuration.
+- `server.py` fetches the spec, builds an authenticated HTTP client, and creates the FastMCP server.
 - `swagger_convert.py` is a small Swagger 2.0 to OpenAPI 3 converter. It handles body and form parameters, response
   schemas, `definitions`, and basic auth. Specs that are already OpenAPI 3 pass through unchanged.
 

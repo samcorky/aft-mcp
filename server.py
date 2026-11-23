@@ -1,25 +1,18 @@
 import json
-import os
-from pathlib import Path
+import sys
 from typing import TYPE_CHECKING
 
 import httpx2
-from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
+from settings import Settings, SettingsError, load_settings
 from swagger_convert import JSON, convert
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fastmcp.utilities.openapi.models import HttpMethod
-
-
-def require_env(name: str) -> str:
-    """Return a required setting from the environment (.env), or fail clearly."""
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Missing required setting {name}; set it in .env")
-    return value
 
 
 def load_spec_from_file(path: Path) -> JSON:
@@ -37,30 +30,29 @@ def load_spec_from_url(url: str, timeout: float) -> JSON:
     return spec
 
 
-def load_spec() -> JSON:
+def load_spec(settings: Settings) -> JSON:
     """Load the spec as OpenAPI 3, from AFT_SPEC_FILE if set, else AFT_SPEC_URL."""
-    spec_file = os.getenv("AFT_SPEC_FILE")
-    if spec_file:
-        spec = load_spec_from_file(Path(spec_file))
+    if settings.spec_file is not None:
+        spec = load_spec_from_file(settings.spec_file)
     else:
-        spec = load_spec_from_url(
-            require_env("AFT_SPEC_URL"), float(require_env("AFT_TIMEOUT"))
-        )
+        spec = load_spec_from_url(str(settings.spec_url), settings.timeout)
     return convert(spec)
 
 
 def build_client(
+    settings: Settings,
     transport: httpx2.AsyncBaseTransport | None = None,
 ) -> httpx2.AsyncClient:
     """Create the HTTP client used to call the AFT API.
 
     Args:
+        settings: The server settings.
         transport: Replaces the network transport; the tests pass a mock here.
     """
     return httpx2.AsyncClient(
-        base_url=require_env("AFT_BASE_URL"),
-        timeout=float(require_env("AFT_TIMEOUT")),
-        auth=(require_env("AFT_USERNAME"), require_env("AFT_PASSWORD")),
+        base_url=str(settings.base_url),
+        timeout=settings.timeout,
+        auth=(settings.username, settings.password.get_secret_value()),
         transport=transport,
     )
 
@@ -111,20 +103,23 @@ def build_route_maps() -> list[RouteMap]:
     ]
 
 
-def create_server() -> FastMCP:
+def create_server(settings: Settings) -> FastMCP:
     """Assemble the MCP server from the OpenAPI spec."""
     return FastMCP.from_openapi(
-        openapi_spec=load_spec(),
-        client=build_client(),
+        openapi_spec=load_spec(settings),
+        client=build_client(settings),
         name="AFT",
         route_maps=build_route_maps(),
     )
 
 
 def main() -> None:
-    """Load .env, build the server and serve it over stdio."""
-    load_dotenv()
-    create_server().run()
+    """Load the settings, build the server and serve it over stdio."""
+    try:
+        settings = load_settings()
+    except SettingsError as error:
+        sys.exit(str(error))  # exits with status 1, the message on stderr
+    create_server(settings).run()
 
 
 if __name__ == "__main__":

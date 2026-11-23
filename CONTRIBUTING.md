@@ -45,6 +45,7 @@ run them. There are three layers:
 | File                            | Tests                                                                                       |
 |---------------------------------|---------------------------------------------------------------------------------------------|
 | `tests/test_swagger_convert.py` | The Swagger 2.0 to OpenAPI 3 converter                                                      |
+| `tests/test_settings.py`        | Loading and validating the settings, and keeping the password out of output                 |
 | `tests/test_server.py`          | Configuration, spec loading, and which endpoints become tools (with the reviewed snapshots) |
 | `tests/test_mcp.py`             | A real MCP client: handshake, tool calls and the HTTP each one sends to a stubbed AFT, plus an `e2e` test that runs `python server.py` over stdio against a local fake AFT |
 
@@ -76,6 +77,8 @@ The ruff and mypy settings follow the conventions of
 - No `from __future__ import annotations`: on Python 3.14 annotations are already
   evaluated lazily, so imports used only in annotations go under `if TYPE_CHECKING:`.
 - `JSON` (in `swagger_convert.py`) is the type for spec fragments.
+- Every setting is a field on `Settings` in `settings.py`; code takes a `Settings`
+  rather than reading the environment itself.
 
 ## Changing what is exposed
 

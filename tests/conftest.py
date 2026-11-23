@@ -2,6 +2,8 @@ from typing import Any
 
 import pytest
 
+from settings import Settings, load_settings
+
 ENV = {
     "AFT_BASE_URL": "https://aft.test",
     "AFT_SPEC_URL": "https://aft.test/api/apispec.json",
@@ -18,6 +20,12 @@ def aft_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     for name, value in ENV.items():
         monkeypatch.setenv(name, value)
     return ENV
+
+
+@pytest.fixture
+def settings(aft_env: dict[str, str]) -> Settings:
+    """Settings loaded from ``aft_env`` alone, never from a ``.env`` file."""
+    return load_settings(env_file=None)
 
 
 def _op(**extra: Any) -> dict[str, Any]:

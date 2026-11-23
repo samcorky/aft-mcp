@@ -7,7 +7,7 @@ license-files = ["LICENSE"]
 dependencies = [
     "fastmcp>=4.1.4",
     "httpx2>=0.28.1",
-    "python-dotenv>=1.2.4",
+    "pydantic-settings>=2.16.2",
 ]
 
 [dependency-groups]
@@ -133,8 +133,9 @@ line-ending = "lf"
 docstring-code-format = true
 
 [tool.mypy]
+plugins = ["pydantic.mypy"]
 strict = true
-files = ["server.py", "swagger_convert.py", "scripts", "tests"]
+files = ["server.py", "settings.py", "swagger_convert.py", "scripts", "tests"]
 python_version = "3.14"
 explicit_package_bases = true
 warn_unused_configs = true

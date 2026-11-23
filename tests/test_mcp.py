@@ -25,6 +25,8 @@ import server
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
 
+    from settings import Settings
+
 pytestmark = pytest.mark.anyio
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -53,19 +55,21 @@ def fake_aft() -> FakeAft:
 async def client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    aft_env: dict[str, str],
+    settings: Settings,
     aft_like_spec: dict[str, Any],
     fake_aft: FakeAft,
 ) -> AsyncIterator[Client[Any]]:
     """An MCP client connected in memory to the real server, with AFT stubbed."""
     spec_file = tmp_path / "spec.json"
     spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
-    monkeypatch.setenv("AFT_SPEC_FILE", str(spec_file))
     real_build_client = server.build_client
     transport = httpx2.MockTransport(fake_aft)
-    monkeypatch.setattr(server, "build_client", lambda: real_build_client(transport))
+    monkeypatch.setattr(
+        server, "build_client", lambda given: real_build_client(given, transport)
+    )
+    from_file = settings.model_copy(update={"spec_file": spec_file})
 
-    async with Client(server.create_server()) as connected:
+    async with Client(server.create_server(from_file)) as connected:
         yield connected
 
 
@@ -223,7 +227,7 @@ async def test_stdio_server_lists_tools_and_calls_aft(
     spec_file = tmp_path / "spec.json"
     spec_file.write_text(json.dumps(aft_like_spec), encoding="utf-8")
     # Every setting is passed explicitly, so a developer's own .env never applies:
-    # load_dotenv() does not override variables that are already set.
+    # pydantic-settings reads the environment before any .env file.
     env = {**aft_env, "AFT_BASE_URL": base_url, "AFT_SPEC_FILE": str(spec_file)}
     transport = StdioTransport(
         command=sys.executable, args=["server.py"], env=env, cwd=str(REPO_ROOT)
