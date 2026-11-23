@@ -75,7 +75,7 @@ def test_the_environment_wins_over_the_env_file(
     assert load_settings(env_file=env_file).timeout == 5.0
 
 
-# --- where the .env file is ----------------------------------------------------------
+# --- where the .env file is --------------------------------------------------------
 
 
 def test_the_default_env_file_is_in_xdg_config_home(
@@ -353,3 +353,64 @@ def test_the_error_message_lists_each_problem() -> None:
         + "  - AFT_MCP_A: bad\n"
         + "  - AFT_MCP_B: bad"
     )
+
+
+# --- https and the spec's host ------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["AFT_MCP_BASE_URL", "AFT_MCP_SPEC_URL"])
+def test_http_is_refused_unless_allowed(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], name: str
+) -> None:
+    monkeypatch.setenv("AFT_MCP_BASE_URL", "http://aft.test")
+    monkeypatch.setenv("AFT_MCP_SPEC_URL", "http://aft.test/api/apispec.json")
+    if name == "AFT_MCP_SPEC_URL":
+        monkeypatch.setenv("AFT_MCP_BASE_URL", "https://aft.test:80")
+    (problem,) = problems()
+    assert problem.startswith(f"{name} must use https")
+    monkeypatch.setenv("AFT_MCP_ALLOW_INSECURE", "true")
+    assert load_settings(env_file=None).allow_insecure is True
+
+
+@pytest.mark.parametrize(
+    "spec_url",
+    [
+        "https://elsewhere.test/api/apispec.json",
+        "https://aft.test:8443/api/apispec.json",
+    ],
+)
+def test_the_spec_url_must_be_on_the_base_urls_host_and_port(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str], spec_url: str
+) -> None:
+    monkeypatch.setenv("AFT_MCP_SPEC_URL", spec_url)
+    monkeypatch.setenv("AFT_MCP_ALLOW_INSECURE", "true")  # doesn't relax this rule
+    (problem,) = problems()
+    assert problem.startswith("AFT_MCP_SPEC_URL must be on the same host and port")
+
+
+def test_the_spec_url_may_use_another_path_or_explicit_default_port(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
+) -> None:
+    monkeypatch.setenv("AFT_MCP_SPEC_URL", "https://AFT.test:443/other/spec.json")
+    assert load_settings(env_file=None).spec_location == (
+        "https://aft.test/other/spec.json"
+    )
+
+
+def test_insecure_urls_lists_the_http_settings_in_use(
+    aft_env: dict[str, str],
+) -> None:
+    loaded = load_settings(env_file=None)
+    assert loaded.insecure_urls == []
+    plain = loaded.model_copy(update={"base_url": "http://aft.test", "spec_url": None})
+    assert plain.insecure_urls == ["AFT_MCP_BASE_URL", "AFT_MCP_SPEC_URL"]
+    from_file = plain.model_copy(update={"spec_file": Path("spec.json")})
+    assert from_file.insecure_urls == ["AFT_MCP_BASE_URL"]
+
+
+def test_a_spec_file_makes_the_spec_url_unchecked(
+    monkeypatch: pytest.MonkeyPatch, aft_env: dict[str, str]
+) -> None:
+    monkeypatch.setenv("AFT_MCP_SPEC_URL", "http://elsewhere.test/spec.json")
+    monkeypatch.setenv("AFT_MCP_SPEC_FILE", "spec.json")
+    assert load_settings(env_file=None).spec_file == Path("spec.json")

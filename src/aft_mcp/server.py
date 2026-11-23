@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx2
+import structlog
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
 
@@ -17,8 +18,12 @@ from aft_mcp.settings import (
     SettingsError,
     env_file_path,
     load_settings,
+    url_origin,
+    url_scheme,
 )
 from aft_mcp.swagger_convert import JSON, convert
+
+log = structlog.get_logger("aft_mcp.server")
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -34,9 +39,24 @@ def load_spec_from_file(path: Path) -> JSON:
     return spec
 
 
-def load_spec_from_url(url: str, timeout: float) -> JSON:
-    """Fetch the AFT API specification over HTTP."""
+def load_spec_from_url(url: str, timeout: float, *, allow_insecure: bool) -> JSON:
+    """Fetch the AFT API specification over HTTP.
+
+    Redirects are followed only while they stay on the same host and port, and on
+    https unless ``allow_insecure``: the spec writes every tool's description, so it
+    must come from the AFT the tools call.
+
+    Raises:
+        SettingsError: A redirect left the host, or dropped to http.
+    """
     response = httpx2.get(url, timeout=timeout, follow_redirects=True)
+    final = str(response.url)
+    if url_origin(final) != url_origin(url):
+        raise SettingsError(
+            [f"the spec at {url} redirected to another host or port: {final}"]
+        )
+    if url_scheme(final) != "https" and not allow_insecure:
+        raise SettingsError([f"the spec at {url} redirected to http: {final}"])
     response.raise_for_status()
     spec: JSON = response.json()
     return spec
@@ -47,7 +67,11 @@ def load_spec(settings: Settings) -> JSON:
     if settings.spec_file is not None:
         spec = load_spec_from_file(settings.spec_file)
     else:
-        spec = load_spec_from_url(settings.spec_location, settings.timeout)
+        spec = load_spec_from_url(
+            settings.spec_location,
+            settings.timeout,
+            allow_insecure=settings.allow_insecure,
+        )
     return convert(spec)
 
 
@@ -191,4 +215,10 @@ def main() -> None:
         sys.exit(str(error))  # exits with status 1, the message on stderr
     warn_about_working_directory_env(env_file)
     configure_logging(settings.log_format)
-    create_server(settings).run()
+    for name in settings.insecure_urls:
+        log.warning("insecure_url", setting=name, note="credentials sent unencrypted")
+    try:
+        mcp = create_server(settings)
+    except SettingsError as error:
+        sys.exit(str(error))
+    mcp.run()

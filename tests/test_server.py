@@ -18,6 +18,8 @@ from aft_mcp.swagger_convert import convert
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from tests.conftest import LogRecords
+
 
 def tool_names(spec: dict[str, Any], *, read_only: bool = False) -> set[str]:
     """Build a server from a spec with the real route maps and list its tools."""
@@ -209,10 +211,51 @@ def test_load_spec_from_url_follows_redirects(monkeypatch: pytest.MonkeyPatch) -
         return httpx2.Response(200, json={"swagger": "2.0"})
 
     seen = stub_http(monkeypatch, handler)
-    assert server.load_spec_from_url("https://aft.test/old", timeout=1) == {
+    assert server.load_spec_from_url(
+        "https://aft.test/old", timeout=1, allow_insecure=False
+    ) == {"swagger": "2.0"}
+    assert [r.url.path for r in seen] == ["/old", "/new"]
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://elsewhere.test/api/apispec.json",  # another host
+        "https://aft.test:8443/api/apispec.json",  # another port
+    ],
+)
+def test_load_spec_from_url_refuses_a_redirect_off_the_host(
+    monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.host == "aft.test" and request.url.port is None:
+            return httpx2.Response(302, headers={"Location": location})
+        return httpx2.Response(200, json={"swagger": "2.0"})
+
+    stub_http(monkeypatch, handler)
+    with pytest.raises(SettingsError, match="redirected to another host or port"):
+        server.load_spec_from_url(
+            "https://aft.test/api/apispec.json", timeout=1, allow_insecure=True
+        )
+
+
+def test_load_spec_from_url_refuses_a_redirect_to_http_unless_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.scheme == "https":
+            return httpx2.Response(
+                302, headers={"Location": "http://aft.test:443/api/apispec.json"}
+            )
+        return httpx2.Response(200, json={"swagger": "2.0"})
+
+    stub_http(monkeypatch, handler)
+    url = "https://aft.test/api/apispec.json"
+    with pytest.raises(SettingsError, match="redirected to http"):
+        server.load_spec_from_url(url, timeout=1, allow_insecure=False)
+    assert server.load_spec_from_url(url, timeout=1, allow_insecure=True) == {
         "swagger": "2.0"
     }
-    assert [r.url.path for r in seen] == ["/old", "/new"]
 
 
 def test_load_spec_from_url_raises_on_http_error(
@@ -220,7 +263,9 @@ def test_load_spec_from_url_raises_on_http_error(
 ) -> None:
     stub_http(monkeypatch, lambda _: httpx2.Response(500))
     with pytest.raises(httpx2.HTTPStatusError):
-        server.load_spec_from_url("https://aft.test/api/apispec.json", timeout=1)
+        server.load_spec_from_url(
+            "https://aft.test/api/apispec.json", timeout=1, allow_insecure=False
+        )
 
 
 def test_load_spec_prefers_the_file(
@@ -278,6 +323,41 @@ def test_main_loads_the_settings_then_runs(
     monkeypatch.setattr(server, "create_server", FakeServer)
     server.main()
     assert calls == [settings, "run"]
+
+
+def test_main_warns_about_each_http_url(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, log_records: LogRecords
+) -> None:
+    insecure = settings.model_copy(
+        update={
+            "base_url": "http://aft.test",
+            "spec_url": None,
+            "allow_insecure": True,
+        }
+    )
+    monkeypatch.setattr(server, "load_settings", lambda _env_file: insecure)
+    monkeypatch.setattr(server, "configure_logging", lambda _format: None)
+    monkeypatch.setattr(
+        server, "create_server", lambda _s: type("S", (), {"run": lambda _self: None})()
+    )
+    server.main()
+    warnings = [r for r in log_records() if r["event"] == "insecure_url"]
+    assert [w["setting"] for w in warnings] == ["AFT_MCP_BASE_URL", "AFT_MCP_SPEC_URL"]
+    assert {w["level"] for w in warnings} == {"warning"}
+
+
+def test_main_exits_when_building_the_server_finds_a_settings_problem(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    def refuse(_settings: Settings) -> FastMCP:
+        raise SettingsError(["the spec at x redirected to http: y"])
+
+    monkeypatch.setattr(server, "load_settings", lambda _env_file: settings)
+    monkeypatch.setattr(server, "configure_logging", lambda _format: None)
+    monkeypatch.setattr(server, "create_server", refuse)
+    with pytest.raises(SystemExit) as exited:
+        server.main()
+    assert "redirected to http" in str(exited.value.code)
 
 
 def test_main_exits_listing_every_settings_problem(

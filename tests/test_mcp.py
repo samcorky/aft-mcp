@@ -374,6 +374,7 @@ async def test_stdio_server_lists_tools_and_calls_aft(
         "AFT_MCP_BASE_URL": base_url,
         "AFT_MCP_SPEC_FILE": str(spec_file),
         "XDG_CONFIG_HOME": str(tmp_path / "config"),
+        "AFT_MCP_ALLOW_INSECURE": "true",  # the stand-in AFT is plain http
     }
     workdir = tmp_path / "cwd"
     workdir.mkdir()

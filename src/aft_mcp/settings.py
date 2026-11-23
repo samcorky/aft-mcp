@@ -11,7 +11,7 @@ error names every bad setting at once.
 import os
 from pathlib import Path
 from typing import Annotated, Literal, Self
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from pydantic import (
     Field,
@@ -36,6 +36,9 @@ DEFAULT_TIMEOUT = 30
 
 _TOKEN, _USER, _PASSWORD = (
     f"{ENV_PREFIX}{n}" for n in ("TOKEN", "USERNAME", "PASSWORD")
+)
+_BASE_URL, _SPEC_URL, _ALLOW_INSECURE = (
+    f"{ENV_PREFIX}{n}" for n in ("BASE_URL", "SPEC_URL", "ALLOW_INSECURE")
 )
 NO_SIGN_IN = f"set {_TOKEN}, or both {_USER} and {_PASSWORD}"
 TWO_SIGN_INS = f"set {_TOKEN} or {_USER} and {_PASSWORD}, not both"
@@ -64,7 +67,10 @@ class Settings(BaseSettings):
     # scripts/settings_reference.py writes .env.example and docs/settings.md from
     # these descriptions and examples: run `uv run poe settings-docs` after a change.
     base_url: HttpUrl = Field(
-        description="Base URL the generated tools call.",
+        description=(
+            "Base URL the generated tools call. It must use https unless "
+            + f"`{ENV_PREFIX}ALLOW_INSECURE` is set."
+        ),
         examples=["https://aft.example.com"],
     )
     spec_url: HttpUrl | None = Field(
@@ -72,7 +78,8 @@ class Settings(BaseSettings):
         description=(
             "URL of AFT's Swagger 2.0 or OpenAPI spec, which the tools are "
             + f"built from. Unset, it is `{DEFAULT_SPEC_PATH}` under "
-            + f"`{ENV_PREFIX}BASE_URL`."
+            + f"`{ENV_PREFIX}BASE_URL`. It must be on the same host and port as "
+            + f"`{ENV_PREFIX}BASE_URL`, and so must any redirect it follows."
         ),
         examples=["https://aft.example.com/api/apispec.json"],
     )
@@ -116,6 +123,14 @@ class Settings(BaseSettings):
             + "logs or errors."
         ),
     )
+    allow_insecure: bool = Field(
+        default=False,
+        description=(
+            f"Allow `http://` for `{_BASE_URL}` and `{_SPEC_URL}`, for an AFT on a "
+            + "trusted network or VPN. The credentials are then sent unencrypted, "
+            + "and the server warns about it on every start."
+        ),
+    )
     # Optional switches: unset means off, the behaviour before they existed.
     read_only: bool = Field(
         default=False,
@@ -146,6 +161,28 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
+    def _urls_are_safe(self) -> Self:
+        # A spec file replaces the spec URL, so the URL isn't checked then.
+        spec_url = None if self.spec_file is not None else self.spec_url
+        urls = {_BASE_URL: str(self.base_url)}
+        if spec_url is not None:
+            urls[_SPEC_URL] = str(spec_url)
+        for name, url in urls.items():
+            if url_scheme(url) != "https" and not self.allow_insecure:
+                raise ValueError(
+                    f"{name} must use https; set {_ALLOW_INSECURE}=true to allow "
+                    + "http on a trusted network"
+                )
+        if spec_url is not None and url_origin(str(spec_url)) != url_origin(
+            str(self.base_url)
+        ):
+            raise ValueError(
+                f"{_SPEC_URL} must be on the same host and port as {_BASE_URL}; "
+                + f"load a spec from elsewhere with {ENV_PREFIX}SPEC_FILE"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _needs_one_way_to_sign_in(self) -> Self:
         basic = (self.username, self.password)
         if self.token is not None:
@@ -156,11 +193,38 @@ class Settings(BaseSettings):
         return self
 
     @property
+    def insecure_urls(self) -> list[str]:
+        """The URL settings that use plain http (allowed by ``allow_insecure``)."""
+        urls = [(_BASE_URL, str(self.base_url))]
+        if self.spec_file is None:
+            urls.append((_SPEC_URL, self.spec_location))
+        return [name for name, url in urls if url_scheme(url) != "https"]
+
+    @property
     def spec_location(self) -> str:
         """The spec URL to fetch: ``spec_url``, or AFT's own under ``base_url``."""
         if self.spec_url is not None:
             return str(self.spec_url)
         return urljoin(str(self.base_url), DEFAULT_SPEC_PATH)
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def url_scheme(url: str) -> str:
+    """The URL's scheme, lower case."""
+    return urlsplit(url).scheme.lower()
+
+
+def url_origin(url: str) -> tuple[str, int | None]:
+    """The host and port a URL connects to, with the scheme's default port filled in.
+
+    The scheme is left out, so ``http://aft.test:443`` and ``https://aft.test`` count
+    as the same host and port; ``url_scheme`` checks the scheme separately.
+    """
+    parts = urlsplit(url)
+    port = parts.port or _DEFAULT_PORTS.get(parts.scheme.lower())
+    return (parts.hostname or "").lower(), port
 
 
 def _describe(error: ValidationError) -> list[str]:
