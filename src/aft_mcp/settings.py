@@ -37,6 +37,8 @@ from aft_mcp._tracking import TrackedSettings
 from aft_mcp._types import CSV  # noqa: TC001 - pydantic resolves the annotation at runtime
 
 ENV_PREFIX = "AFT_MCP_"
+# The variable naming the .env file to read (PathSettings.env_file).
+ENV_FILE_VARIABLE = f"{ENV_PREFIX}ENV_FILE"
 # The directory under the user's config directory that holds the default .env.
 CONFIG_DIR_NAME = "aft-mcp"
 # Where AFT serves its own spec, relative to the base URL.

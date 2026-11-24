@@ -10,9 +10,10 @@ The server reads its settings from the environment, then from one `.env` file:
 - **By default**, `aft-mcp/.env` in your config directory: `~/.config/aft-mcp/.env` on Linux and macOS
   (`$XDG_CONFIG_HOME/aft-mcp/.env` if you set it), `%APPDATA%\aft-mcp\.env` on Windows. Make the directory readable
   only by you, and start the file from [`.env.example`](../.env.example).
-- **`AFT_MCP_ENV_FILE`**, set in the client config's environment, names another file instead, for example one per
-  AFT instance (`prod.env`, `test.env`). It must exist. Set `AFT_MCP_INSTANCE=prod` (or `test`) in each, so the server's
-  name, its instructions to the agent and every log line say which instance it is.
+- **`--env-file PATH`** (`aft-mcp --env-file ~/.config/aft-mcp/prod.env`), or `AFT_MCP_ENV_FILE` in the client config's
+  environment, names another file instead, for example one per AFT instance (`prod.env`, `test.env`). It must exist. Set
+  `AFT_MCP_INSTANCE=prod` (or `test`) in each, so the server's name, its instructions to the agent and every log line
+  say which instance it is.
 - **The working directory is never read**, so the server behaves the same whichever project the client starts it in.
   If an old `.env` is still there, the server says on stderr that it ignored it.
 
@@ -79,7 +80,12 @@ claude mcp add aft -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> a
 
 Add `--scope user` to make it available in every project. Check it with `claude mcp list` or `/mcp` inside a session.
 From a checkout, use `claude mcp add aft -- uv run --directory /path/to/aft-mcp aft-mcp`. To use another settings
-file, add `-e AFT_MCP_ENV_FILE=/path/to/prod.env` before the `--`.
+file, add `--env-file /path/to/prod.env` after `aft-mcp`, for example one MCP server per instance:
+
+```bash
+claude mcp add aft-prod -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp --env-file ~/.config/aft-mcp/prod.env
+claude mcp add aft-test -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp --env-file ~/.config/aft-mcp/test.env
+```
 
 ## Claude Desktop
 
@@ -97,7 +103,8 @@ Add this to `claude_desktop_config.json` (Settings, then Developer, then Edit Co
 ```
 
 Claude Desktop may not see the `PATH` of your shell; if it can't find `uvx`, give its full path as `command` (`which
-uvx`, or `where uvx` on Windows). To use another settings file, add `"env": {"AFT_MCP_ENV_FILE": "/path/to/prod.env"}`.
+uvx`, or `where uvx` on Windows). To use another settings file, add `"--env-file", "/path/to/prod.env"` after
+`"aft-mcp"` in `args`.
 
 ## Claude Agent SDK
 

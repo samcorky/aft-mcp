@@ -60,8 +60,8 @@ uv sync --locked --no-dev --no-editable
 `pyproject.toml`. `--no-editable` copies aft-mcp into `.venv`, so file-integrity monitoring can watch `.venv` alone. uv
 is only needed at deploy time; the broker runs `/opt/aft-mcp/.venv/bin/aft-mcp`.
 
-Check each instance once after a deploy: `AFT_MCP_ENV_FILE=/etc/aft-broker/prod.env /opt/aft-mcp/.venv/bin/aft-mcp
-check` loads the settings, fetches the spec and signs in with one harmless read.
+Check each instance once after a deploy: `/opt/aft-mcp/.venv/bin/aft-mcp --env-file /etc/aft-broker/prod.env check`
+loads the settings, fetches the spec and signs in with one harmless read.
 
 ### The broker script
 
@@ -91,12 +91,11 @@ logger -p auth.info -t aft-mcp-broker "$workstation start $instance"
 # SSH_CONNECTION, which tags every log line with the client's address.
 env -i PATH=/usr/bin:/bin \
   SSH_CONNECTION="${SSH_CONNECTION:-}" \
-  AFT_MCP_ENV_FILE="/etc/aft-broker/$instance.env" \
   AFT_MCP_INSTANCE="$instance" \
   AFT_MCP_LOG_SYSLOG=true \
   AFT_MCP_LOG_SYSLOG_FACILITY=auth \
   AFT_MCP_LOG_STDERR=false \
-  /opt/aft-mcp/.venv/bin/aft-mcp
+  /opt/aft-mcp/.venv/bin/aft-mcp --env-file "/etc/aft-broker/$instance.env"
 status=$?
 logger -p auth.info -t aft-mcp-broker "$workstation end $instance ($status)"
 exit "$status"
@@ -104,7 +103,7 @@ exit "$status"
 
 The settings it passes:
 
-- `AFT_MCP_ENV_FILE` picks the instance's settings file; it must exist.
+- `--env-file` picks the instance's settings file; it must exist.
 - `AFT_MCP_INSTANCE` names the instance in the server's name, its instructions to the agent and every log line, so the
   agent can tell `prod` from `test`.
 - `AFT_MCP_LOG_SYSLOG` and `AFT_MCP_LOG_STDERR=false` keep the audit log on the server. Over SSH, stderr goes back to the

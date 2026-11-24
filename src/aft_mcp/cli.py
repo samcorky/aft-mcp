@@ -6,7 +6,10 @@ log lines go to stderr.
 """
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+import os
+import sys
+from pathlib import Path
+from typing import Annotated, Any
 
 import cyclopts
 from pydantic import SecretStr
@@ -14,6 +17,7 @@ from pydantic import SecretStr
 from aft_mcp import __version__, server
 from aft_mcp.audit import configure_logging
 from aft_mcp.settings import (
+    ENV_FILE_VARIABLE,
     GROUPS,
     AftMcpSettings,
     SessionSettings,
@@ -23,14 +27,38 @@ from aft_mcp.settings import (
     load_settings,
 )
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 app = cyclopts.App(
     name="aft-mcp",
     help="An MCP server that gives AI agents safe, scoped access to AFT boards.",
     version=__version__,
 )
+
+# Global options, before the command: aft-mcp --env-file prod.env check
+EnvFileOption = Annotated[
+    Path | None, cyclopts.Parameter(name="--env-file", group="Global options")
+]
+
+
+@app.meta.default
+def launcher(
+    *tokens: Annotated[str, cyclopts.Parameter(show=False, allow_leading_hyphen=True)],
+    env_file: EnvFileOption = None,
+) -> int:
+    """Apply the global options, then run the command (``serve`` when none is given).
+
+    Parameters
+    ----------
+    env_file
+        The settings file to read, the same as setting AFT_MCP_ENV_FILE; it must
+        exist. Only the file's path goes on the command line, never a secret.
+    """
+    if env_file is not None:
+        # Through the variable, so the usual checks and source tracking apply.
+        os.environ[ENV_FILE_VARIABLE] = str(env_file)
+    command, bound, _ = app.parse_args(tokens)
+    result = command(*bound.args, **bound.kwargs)
+    return 0 if result is None else int(result)
+
 
 MASK = "**********"
 # A harmless read that needs a signed-in user and no board.
@@ -189,5 +217,5 @@ def _shown(value: Any) -> str:  # noqa: ANN401 - any setting's value
 
 
 def main() -> None:
-    """Run the ``aft-mcp`` command."""
-    app()
+    """Run the ``aft-mcp`` command, global options included."""
+    app.meta(sys.argv[1:])

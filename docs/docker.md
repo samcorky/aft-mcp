@@ -36,7 +36,8 @@ docker run -i --rm \
 aft-mcp reads the file itself, so it's parsed exactly as outside Docker, and only its path is in the container's
 configuration: `docker inspect` shows `AFT_MCP_ENV_FILE`, not your token. See [Settings](settings.md) for every
 variable. `AFT_MCP_ENV_FILE` is needed because the default location (`~/.config/aft-mcp/.env`) doesn't apply inside the
-container.
+container. aft-mcp's own `--env-file` option does the same after the image name (`... ghcr.io/samcorky/aft-mcp:<tag>
+--env-file /config/aft-mcp.env`), but `-e AFT_MCP_ENV_FILE` is used here so it isn't mistaken for Docker's `--env-file`.
 
 The image runs as user `1000:1000`. A settings file with mode `600` (readable only by its owner) is readable in the
 container only if its owner is also uid 1000, which is usually the first user on a Linux machine (`id -u` shows yours).

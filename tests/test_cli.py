@@ -1,7 +1,9 @@
 """The ``aft-mcp`` command line: serve, check, tools, version and settings."""
 
 import json
+import os
 import runpy
+import sys
 from importlib.metadata import entry_points
 from typing import TYPE_CHECKING, Any
 
@@ -17,9 +19,9 @@ if TYPE_CHECKING:
 
 
 def run(*tokens: str) -> int:
-    """Run the command line as ``aft-mcp <tokens>``; return its exit code."""
+    """Run the command line as ``aft-mcp <tokens>``, global options included."""
     with pytest.raises(SystemExit) as exited:
-        cli.app(list(tokens), exit_on_error=False)
+        cli.app.meta(list(tokens), exit_on_error=False)
     code = exited.value.code
     return 0 if code is None else int(code)
 
@@ -229,8 +231,62 @@ def test_python_m_aft_mcp_runs_the_command_line(
     assert calls == ["main"]
 
 
-def test_main_runs_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(cli, "app", lambda: calls.append("app"))
-    cli.main()
-    assert calls == ["app"]
+def test_main_reads_the_command_line(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["aft-mcp", "version"])
+    with pytest.raises(SystemExit) as exited:
+        cli.main()
+    assert exited.value.code == 0
+    assert capsys.readouterr().out.strip() == aft_mcp.__version__
+
+
+# --- --env-file -------------------------------------------------------------------
+
+
+@pytest.fixture
+def env_file_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Have monkeypatch restore AFT_MCP_ENV_FILE, which --env-file sets."""
+    monkeypatch.setenv("AFT_MCP_ENV_FILE", "set-by-the-test")
+
+
+@pytest.mark.usefixtures("env_file_variable")
+def test_env_file_picks_the_settings_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    aft_env: dict[str, str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.delenv("AFT_MCP_INSTANCE", raising=False)
+    named = tmp_path / "prod.env"
+    named.write_text("AFT_MCP_INSTANCE=prod\n", encoding="utf-8")
+    assert run("--env-file", str(named), "settings") == 0
+    rows = {
+        line.split()[0]: line.split()[1:]
+        for line in capsys.readouterr().out.splitlines()
+    }
+    assert rows["AFT_MCP_INSTANCE"] == ["prod", str(named)]
+    assert rows["AFT_MCP_ENV_FILE"] == [str(named), "environment"]
+
+
+@pytest.mark.usefixtures("env_file_variable", "aft_env")
+def test_env_file_must_exist(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / "typo.env"
+    assert run("--env-file", str(missing), "check") == 1
+    assert f"AFT_MCP_ENV_FILE: no such file: {missing}" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("env_file_variable")
+def test_env_file_with_no_command_serves_with_that_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    named = tmp_path / "test.env"
+    named.write_text("", encoding="utf-8")
+    seen: list[str | None] = []
+    monkeypatch.setattr(
+        server, "main", lambda: seen.append(os.environ.get("AFT_MCP_ENV_FILE"))
+    )
+    assert run("--env-file", str(named)) == 0
+    assert seen == [str(named)]
