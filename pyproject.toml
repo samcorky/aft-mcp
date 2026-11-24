@@ -84,6 +84,7 @@ dev = [
     { include-group = "release" },
     "hatch-fancy-pypi-readme>=24.1.0",
     "mypy>=2.4.1",
+    "pillow>=12.0.0",
     "poethepoet>=0.49.0",
     "prek>=0.5.11",
     "pytest>=9.2.0",

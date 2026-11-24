@@ -139,6 +139,17 @@ of the project, so changes to it get extra care:
 - Dependency, action and hook updates come from Renovate, weekly; see
   [Dependencies](#dependencies).
 
+## The logo
+
+`scripts/make_logo.py` makes every logo image from AFT's logo
+(`assets/source/AFT_logo.png`, MIT licensed, credited in the README): `assets/logo.png`
+for the README, `assets/logo-32.png` to check it reads small, `assets/social-preview.png`,
+and `src/aft_mcp/icon.png`, the icon the MCP server advertises. Run
+`uv run --script scripts/make_logo.py` after changing it, and commit the images.
+
+GitHub has no API for the social preview, so after changing `assets/social-preview.png`,
+upload it by hand under the repository's Settings, General, Social preview.
+
 ## Dependencies
 
 Renovate (`.github/renovate.json`) raises updates before 9am (London) on Mondays; its

@@ -1,5 +1,7 @@
+import base64
 import json
 import sys
+from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -7,6 +9,7 @@ import httpx2
 import structlog
 from fastmcp import FastMCP
 from fastmcp.server.providers.openapi import MCPType, RouteMap
+from mcp.types import Icon
 
 from aft_mcp import __version__
 from aft_mcp.audit import AuditLog, LoggingError, configure_logging, log_response
@@ -199,6 +202,22 @@ def server_identity(settings: Settings) -> tuple[str, str | None]:
     return f"AFT ({instance})", instructions
 
 
+# Shown by MCP clients that display server icons: aft-mcp's logo, shipped in the package
+# (scripts/make_logo.py makes it) and sent inline, so it needs no network.
+ICON_FILE = "icon.png"
+WEBSITE = "https://github.com/samcorky/aft-mcp"
+
+
+def server_icon() -> Icon:
+    """The logo as an MCP icon: a 64 px PNG, inline as a data URI."""
+    png = resources.files("aft_mcp").joinpath(ICON_FILE).read_bytes()
+    return Icon(
+        src=f"data:image/png;base64,{base64.b64encode(png).decode()}",
+        mimeType="image/png",
+        sizes=["64x64"],
+    )
+
+
 def create_server(settings: Settings) -> FastMCP:
     """Assemble the MCP server from the OpenAPI spec, with the audit log."""
     name, instructions = server_identity(settings)
@@ -208,6 +227,8 @@ def create_server(settings: Settings) -> FastMCP:
         name=name,
         instructions=instructions,
         version=__version__,
+        icons=[server_icon()],
+        website_url=WEBSITE,
         route_maps=build_route_maps(read_only=settings.tools.read_only),
     )
     mcp.add_middleware(AuditLog())
