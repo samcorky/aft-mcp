@@ -4,6 +4,9 @@
 
 **An MCP server that gives AI agents safe, scoped access to your AFT boards.**
 
+[![PyPI][pypi-badge]][pypi-link]
+[![Release][release-badge]][release-link]
+[![Container][ghcr-badge]][ghcr-link]
 [![CI][ci-badge]][ci-link]
 [![Python 3.14+][python-badge]][python-link]
 [![License: MIT][license-badge]][license-link]
@@ -96,6 +99,12 @@ and report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 [MIT](LICENSE)
 
+[pypi-badge]: https://img.shields.io/pypi/v/aft-mcp?logo=pypi&logoColor=white
+[pypi-link]: https://pypi.org/project/aft-mcp/
+[release-badge]: https://img.shields.io/github/v/release/samcorky/aft-mcp?logo=github
+[release-link]: https://github.com/samcorky/aft-mcp/releases/latest
+[ghcr-badge]: https://img.shields.io/github/v/release/samcorky/aft-mcp?label=ghcr.io&logo=docker&logoColor=white
+[ghcr-link]: https://github.com/samcorky/aft-mcp/pkgs/container/aft-mcp
 [ci-badge]: https://github.com/samcorky/aft-mcp/actions/workflows/ci.yml/badge.svg?branch=main
 [ci-link]: https://github.com/samcorky/aft-mcp/actions/workflows/ci.yml
 [python-badge]: https://img.shields.io/badge/python-3.14%2B-3776ab?logo=python&logoColor=white
