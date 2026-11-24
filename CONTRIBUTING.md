@@ -148,6 +148,27 @@ no version number to edit by hand.
 - Publish a release from the tag with GitHub's "Generate release notes", which groups
   pull requests by label (see below).
 
+To release, run the **Release** workflow (`release.yml`, ported from menagerist) from
+`main` (Actions, Release, Run workflow):
+
+- **channel** `final` plans the next tag with calver-scm (`next-tag`); `a`, `b` or `rc`
+  plan a pre-release (`v2026.11.0rc1`); `promote` gives the latest pre-release its final
+  tag; `post` makes a post-release of the latest release. Or type a **tag** instead.
+- It checks the CalVer setup, checks the tag against the repository (no reuse, no
+  skipped patch, nothing lower than an existing release), checks no release or draft has
+  it yet, and creates the release with GitHub's generated notes since the last final
+  release. An optional **name** makes the title `<tag> - <name>`.
+- **draft** (on by default) creates a draft: review it on the Releases page and publish
+  it, which starts `publish.yml`. A release created already published needs a
+  `RELEASE_TOKEN` secret, because a release published with the workflow's own token
+  doesn't start other workflows. **dry run** plans and checks, previews the title,
+  notes and image tags, and creates nothing.
+
+By hand: on `main`, `git fetch --tags`, then `uv run poe release-tag` prints the next tag
+(it creates nothing); `git tag "$(uv run poe release-tag)"`, push the tag, and publish a
+GitHub release for it. `uv run poe version`, `version-explain` and `version-doctor` show
+the version the checkout builds, how it was worked out, and check the CalVer setup.
+
 Publishing a GitHub release runs one workflow, `publish.yml` (ported from menagerist's,
 plus PyPI). Any failed check publishes nothing.
 

@@ -66,6 +66,10 @@ format-check = { cmd = "ruff format --check .", help = "Check formatting (as CI 
 lint = { cmd = "ruff check --no-fix .", help = "Lint without changing files" }
 types = { cmd = "mypy", help = "Type-check with mypy" }
 test = { cmd = "pytest", help = "Run the test suite with coverage" }
+version = { cmd = "calver-scm version", help = "Show the version the current checkout builds as" }
+version-explain = { cmd = "calver-scm explain", help = "Show how the current version was derived from the tags and commits" }
+version-doctor = { cmd = "calver-scm doctor", help = "Check the CalVer setup for problems (shallow clone, no compatible tag, bad config)" }
+release-tag = { cmd = "calver-scm --format plain next-tag", help = "Print the next release tag without creating it; run `git fetch --tags` first, then `git tag \"$(uv run poe release-tag)\"`" }
 docker-build = { shell = "VERSION=\"$(uv run --locked --only-group release calver-scm --format plain version)\" COMMIT_SHA=\"$(git rev-parse HEAD)\" BUILD_TIMESTAMP=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" docker buildx bake local", help = "Build the image as aft-mcp:local with docker buildx bake" }
 test-fast = { cmd = "pytest --no-cov -q -m \"not e2e\"", help = "Run the tests without coverage or e2e (used on pre-push)" }
 check = { sequence = ["format-check", "lint", "types", "test"], help = "Run every CI check (ruff, mypy, pytest)" }
