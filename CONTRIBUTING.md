@@ -152,8 +152,10 @@ Publishing a GitHub release runs two workflows:
 
 - **`release.yml` (PyPI):** checks the tag with calver-scm (`validate --against-repo`) and
   that it is on `main`, builds and tests the wheel and sdist (`poe build-check`), then
-  uploads both through trusted publishing (OIDC, no stored token) with a build-provenance
-  attestation. Any failure publishes nothing.
+  uploads both with `pypa/gh-action-pypi-publish` through trusted publishing (OIDC, no
+  stored token). Each file gets two attestations: a PEP 740 one that pypi.org shows as
+  its provenance, and a GitHub one (`gh attestation verify <file> --owner samcorky`).
+  Any failure publishes nothing.
 - **`publish.yml` (image), ported from menagerist:** builds the image with
   `docker buildx bake` (`docker-bake.hcl`) on a native runner for `linux/amd64` and
   `linux/arm64`, after `build.yml` has smoke tested it, and pushes one multi-platform
