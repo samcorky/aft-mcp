@@ -49,10 +49,10 @@ You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.14 itself if need
    AFT_MCP_TOKEN=<the token from step 1>
    ```
 
-3. **Add it to Claude Code**, pinning `<ref>` to a release tag or commit:
+3. **Add it to Claude Code**, pinned to a release:
 
    ```bash
-   claude mcp add aft -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+   claude mcp add aft -- uvx aft-mcp@2026.11.0
    ```
 
    Then ask Claude "What is on my AFT boards?", or check the connection with `/mcp`.
