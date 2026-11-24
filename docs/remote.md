@@ -21,6 +21,14 @@ Claude Code ── stdio ── ssh aft-broker prod ── SSH ── forced com
 Create an account such as `aft-broker` with a locked password, no extra groups (in particular not `docker`), and no
 certificate logins. It only ever runs the broker script.
 
+```bash
+useradd --create-home --shell /bin/sh aft-broker
+passwd --lock aft-broker
+```
+
+Give it a real shell such as `/bin/sh`, not `nologin`: sshd runs the forced command through the account's login shell,
+so with `nologin` the broker never starts. `restrict` and `command=` (below) are what stop it from getting a shell.
+
 ### One `authorized_keys` line per workstation
 
 ```text
@@ -31,11 +39,18 @@ restrict,command="/usr/local/bin/aft-mcp-broker laptop prod,test" ssh-ed25519 AA
 - `command=` means this key can only run the broker, whatever the client asks for. The workstation's request (`prod`)
   arrives as `SSH_ORIGINAL_COMMAND`.
 - The arguments name the workstation (for the log) and the instances it may reach.
-- Make the file owned by root, so the account can't add keys itself, and watch it with file-integrity monitoring.
+- Make the file and its directory owned by root, so the account can't add keys itself, and watch it with
+  file-integrity monitoring:
+
+  ```bash
+  install -d -o root -g root -m 755 /home/aft-broker/.ssh
+  install -o root -g root -m 644 authorized_keys /home/aft-broker/.ssh/authorized_keys
+  ```
 
 ### Settings stay on the server
 
-Keep one settings file per instance, such as `/etc/aft-broker/prod.env`, owned `root:aft-broker` with mode `0640`:
+Keep one settings file per instance, such as `/etc/aft-broker/prod.env`, owned `root:aft-broker` with mode `0640`, in
+a directory only root and the account can enter (`install -d -o root -g aft-broker -m 750 /etc/aft-broker`):
 
 ```dotenv
 AFT_MCP_BASE_URL=https://aft.example.com
@@ -53,8 +68,11 @@ Install a reviewed release, or a reviewed commit, with every dependency pinned b
 ```bash
 git clone https://github.com/samcorky/aft-mcp /opt/aft-mcp
 cd /opt/aft-mcp && git checkout <reviewed-ref>
-uv sync --locked --no-dev --no-editable
+UV_PYTHON_INSTALL_DIR=/opt/aft-mcp/python uv sync --locked --no-dev --no-editable
 ```
+
+`UV_PYTHON_INSTALL_DIR` matters: run as root, uv otherwise installs the Python from `.python-version` under
+`/root/.local/share/uv`, which the `aft-broker` account can't read, and the broker fails with `Permission denied`.
 
 `--locked` installs exactly what `uv.lock` records, checks each package's hash, and fails if the lock doesn't match
 `pyproject.toml`. `--no-editable` copies aft-mcp into `.venv`, so file-integrity monitoring can watch `.venv` alone. uv
@@ -111,6 +129,11 @@ The settings it passes:
   every line carries `ssh_client`.
 
 aft-mcp also refuses an `http://` AFT URL unless `AFT_MCP_ALLOW_INSECURE=true`, and refuses a spec from another host.
+
+This setup has been run end to end: in a container with a locked `aft-broker` account and the files above, an MCP
+client connected with `ssh -T aft-broker prod` and called tools against a real AFT, the audit log reached syslog under
+`auth` with `instance` and `ssh_client` on each line, the client received nothing on stderr, and a shell, a PTY, port
+forwarding, an instance the key may not reach, a password login and the account adding a key were all refused.
 
 ## On each workstation
 
