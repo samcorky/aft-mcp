@@ -64,6 +64,7 @@ You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.14 itself if need
 - [Connecting clients](docs/clients.md): Claude Code, Claude Desktop, the Agent SDK and other MCP clients, running
   from a checkout, and tool permissions.
 - [Access and auditing](docs/access.md): the dedicated AFT user, read-only mode, the board allowlist and the audit log.
+- [Running with Docker](docs/docker.md): the image on GHCR, its settings and tags, and building it yourself.
 - [Running on a server](docs/remote.md): one aft-mcp on a server, reached from each workstation over SSH, so the
   credential never sits on a workstation.
 

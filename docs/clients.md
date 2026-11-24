@@ -25,7 +25,8 @@ On a server, the token or password can come from a file instead of `.env` or the
 `AFT_MCP_SECRETS_DIR` at a directory where each file is named after a variable and holds its value. The environment and
 `.env` still win over it, and the directory must exist.
 
-- **Docker:** mount a secret named `AFT_MCP_TOKEN` and set `AFT_MCP_SECRETS_DIR=/run/secrets`.
+- **Docker:** mount a secret named `AFT_MCP_TOKEN` and set `AFT_MCP_SECRETS_DIR=/run/secrets`; see
+  [Running aft-mcp with Docker](docker.md#secrets-in-files).
 - **systemd:** `LoadCredential=AFT_MCP_TOKEN:/etc/aft-mcp/token` in the unit. systemd sets `CREDENTIALS_DIRECTORY`,
   which aft-mcp reads when `AFT_MCP_SECRETS_DIR` isn't set.
 
@@ -49,17 +50,17 @@ a build-provenance attestation, so you can check where they were built.
 
 ## With Docker
 
-Each release is also an image on GHCR, for `linux/amd64` and `linux/arm64`. Pin a release (`2026.11.0`), or follow a
-month (`2026.11`), a year (`2026`) or `latest`; `edge` is the newest build of `main`. `-i` keeps stdin open for the stdio
-transport, and the settings come from a file passed in, since the image has no `.env` of its own:
+Each release is also an image, `ghcr.io/samcorky/aft-mcp:<tag>`, for `linux/amd64` and `linux/arm64`. Mount your
+settings file and point `AFT_MCP_ENV_FILE` at it:
 
 ```bash
-docker run -i --rm --env-file /path/to/prod.env ghcr.io/samcorky/aft-mcp:<tag>
+claude mcp add aft -- docker run -i --rm \
+  -v ~/.config/aft-mcp/.env:/config/aft-mcp.env:ro -e AFT_MCP_ENV_FILE=/config/aft-mcp.env \
+  ghcr.io/samcorky/aft-mcp:<tag>
 ```
 
-For Claude Code: `claude mcp add aft -- docker run -i --rm --env-file /path/to/prod.env ghcr.io/samcorky/aft-mcp:<tag>`.
-To keep the token out of the env file, mount it as a secret named `AFT_MCP_TOKEN` and add
-`-e AFT_MCP_SECRETS_DIR=/run/secrets`.
+[Running aft-mcp with Docker](docker.md) covers tags, secrets, why not `--env-file`, checking a setup, Claude Desktop,
+how the image is built, and building it yourself.
 
 ## From a checkout
 
