@@ -378,6 +378,25 @@ def test_main_exits_when_building_the_server_finds_a_settings_problem(
     assert "redirected to http" in str(exited.value.code)
 
 
+def test_main_logs_a_failure_to_start_then_exits(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, log_records: LogRecords
+) -> None:
+    def unreachable(_settings: Settings) -> FastMCP:
+        msg = "the spec could not be fetched"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(server, "load_settings", lambda *_: settings)
+    monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
+    monkeypatch.setattr(server, "create_server", unreachable)
+    with pytest.raises(SystemExit) as exited:
+        server.main()
+    assert exited.value.code == 1
+    [record] = [r for r in log_records() if r["event"] == "startup_failed"]
+    assert record["level"] == "error"
+    assert record["error"] == "RuntimeError"
+    assert "the spec could not be fetched" in record["exception"]
+
+
 def test_main_exits_listing_every_settings_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
