@@ -103,6 +103,20 @@ async def test_handshake_reports_the_server_and_its_tools(
     assert client.server_capabilities.tools is not None
 
 
+async def test_handshake_carries_the_logo_and_the_website(
+    client: Client[Any],
+) -> None:
+    assert client.server_info is not None
+    assert client.server_info.website_url == "https://github.com/samcorky/aft-mcp"
+    (icon,) = client.server_info.icons or []
+    assert icon.mime_type == "image/png"
+    assert icon.sizes == ["64x64"]
+    prefix = "data:image/png;base64,"
+    assert icon.src.startswith(prefix)
+    png = base64.b64decode(icon.src.removeprefix(prefix))
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")  # a real PNG, shipped in the package
+
+
 async def test_lists_only_the_allowed_tools(client: Client[Any]) -> None:
     names = {tool.name for tool in await client.list_tools()}
     assert "get_boards" in names

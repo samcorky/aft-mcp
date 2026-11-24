@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/logo.png" width="128" height="128" alt="aft-mcp logo: the AFT logo with an MCP banner">
+
 # aft-mcp
 
 **An MCP server that gives AI agents safe, scoped access to your AFT boards.**
@@ -98,6 +100,10 @@ and report security issues privately as described in [SECURITY.md](SECURITY.md).
 ## Licence
 
 [MIT](LICENSE)
+
+The logo is [AFT](https://github.com/sjefferson99/aft)'s logo, copyright (c) 2025 Stephen Jefferson and used under
+[AFT's MIT licence](https://github.com/sjefferson99/aft/blob/main/LICENSE), with an "MCP" banner added
+(`scripts/make_logo.py`).
 
 [pypi-badge]: https://img.shields.io/pypi/v/aft-mcp?logo=pypi&logoColor=white
 [pypi-link]: https://pypi.org/project/aft-mcp/
