@@ -148,23 +148,27 @@ no version number to edit by hand.
 - Publish a release from the tag with GitHub's "Generate release notes", which groups
   pull requests by label (see below).
 
-Publishing a GitHub release runs two workflows:
+Publishing a GitHub release runs one workflow, `publish.yml` (ported from menagerist's,
+plus PyPI). Any failed check publishes nothing.
 
-- **`release.yml` (PyPI):** checks the tag with calver-scm (`validate --against-repo`) and
-  that it is on `main`, builds and tests the wheel and sdist (`poe build-check`), then
-  uploads both with `pypa/gh-action-pypi-publish` through trusted publishing (OIDC, no
-  stored token). Each file gets two attestations: a PEP 740 one that pypi.org shows as
-  its provenance, and a GitHub one (`gh attestation verify <file> --owner samcorky`).
-  Any failure publishes nothing.
-- **`publish.yml` (image), ported from menagerist:** builds the image with
-  `docker buildx bake` (`docker-bake.hcl`) on a native runner for `linux/amd64` and
-  `linux/arm64`, after `build.yml` has smoke tested it, and pushes one multi-platform
-  image to `ghcr.io/samcorky/aft-mcp` with an attestation. A release gets its version
+- **Checks:** the version job validates the tag with calver-scm, checks it is on `main`,
+  and that the version built from it is the tag. `build.yml` smoke tests the image and
+  compares its installed package metadata (name, version, summary, licence,
+  `Requires-Python`, `Requires-Dist`) with a wheel built from the same commit
+  (`scripts/compare_package_metadata.py`); CI runs this on every pull request too.
+- **PyPI:** the `dist` job builds and tests the wheel and sdist (`poe build-check`) and
+  checks they carry the release's version; the `pypi` job uploads them with
+  `pypa/gh-action-pypi-publish` through trusted publishing (OIDC, no stored token). Each
+  file gets two attestations: a PEP 740 one that pypi.org shows as its provenance, and a
+  GitHub one (`gh attestation verify <file> --owner samcorky`).
+- **Image:** built with `docker buildx bake` (`docker-bake.hcl`) on a native runner for
+  `linux/amd64` and `linux/arm64`, and pushed as one multi-platform image to
+  `ghcr.io/samcorky/aft-mcp` with an attestation. A release gets its version
   (`2026.11.0`), and the month (`2026.11`), year (`2026`) and `latest` tags, each moved
   only when no newer release covers it (`.github/actions/image-tags`,
   `scripts/image_tags.py`). A push to `main` publishes `edge` and `sha-<commit>`. Run it
   by hand to build only, tick `push` to push, or give a `tag` to preview the tags a
-  release would publish.
+  release would publish. PyPI is only ever published for a release.
 
 The image (`Dockerfile`) is built like menagerist's: uv installs the Python from
 `.python-version` and the dependencies with `uv sync --locked` (exactly what `uv.lock`
@@ -177,7 +181,7 @@ pull request (`build.yml`); `uv run poe docker-build` builds `aft-mcp:local` the
 One-off setup before the first release, done by a maintainer:
 
 - On pypi.org, add a pending trusted publisher for the project `aft-mcp`: owner
-  `samcorky`, repository `aft-mcp`, workflow `release.yml`, environment `pypi`.
+  `samcorky`, repository `aft-mcp`, workflow `publish.yml`, environment `pypi`.
 - In this repository's settings, create the `pypi` environment (optionally limited to tags
   matching `v*`, with a required reviewer).
 

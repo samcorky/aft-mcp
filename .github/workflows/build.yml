@@ -84,3 +84,11 @@ jobs:
           grep -q "AFT_MCP_BASE_URL: Field required" <<< "$out"
           docker image inspect aft-mcp:local --format '{{.Size}}' \
             | awk '{printf "Image size: %.1f MB\n", $1/1e6}' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The wheel for PyPI is built by hatch-vcs from the tags; the image got its
+      # version as a build argument. Fail if the two would describe different releases.
+      - name: Build the wheel from the same commit
+        run: uv build --wheel --out-dir "${RUNNER_TEMP}/dist"
+
+      - name: Check the image and the wheel carry the same metadata
+        run: uv run --no-project python scripts/compare_package_metadata.py "${RUNNER_TEMP}"/dist/*.whl aft-mcp:local

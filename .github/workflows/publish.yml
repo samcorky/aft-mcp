@@ -1,8 +1,9 @@
-# Ported from menagerist's publish workflow: the image only. PyPI is release.yml.
+# Ported from menagerist's publish workflow, plus PyPI: one workflow publishes a release.
 name: Publish
 
 # Builds the image on a native runner for each platform and pushes it to GHCR.
-#   - a published release:  <version>, the month and year tags and latest, each only
+#   - a published release:  the wheel and sdist to PyPI (dist, pypi), and the image:
+#                           <version>, the month and year tags and latest, each only
 #                           when no newer release covers it (.github/actions/image-tags)
 #   - a push to main:       edge and sha-<commit>
 #   - run by hand:          a build only, unless "push" is ticked (sha-<commit>, plus
@@ -121,8 +122,8 @@ jobs:
             echo "$message"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # As in release.yml: a release must be made from a tag on main, or no image is
-      # built or pushed for it (every image job needs this one).
+      # A release must be made from a tag on main, or nothing is built or published
+      # for it (every image job and the PyPI jobs need this one).
       - name: Check the release tag is on main
         if: github.event_name == 'release'
         env:
@@ -428,3 +429,84 @@ jobs:
           subject-name: ${{ env.REGISTRY_IMAGE }}
           subject-digest: ${{ steps.index.outputs.digest }}
           push-to-registry: true
+
+  dist:
+    name: "Build: wheel + sdist for PyPI"
+    # Only a release goes to PyPI; the version job has checked its tag (CalVer, on main,
+    # and the same as the version built from it).
+    needs: version
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the version comes from the tags
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: false # no cache for files that are published
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Build and test the distributions
+        run: uv run --frozen poe build-check
+
+      # The image is built with the version job's VERSION; the files must say the same.
+      - name: Check the files carry the release's version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for file in dist/*; do
+            case "$(basename "$file")" in
+              aft_mcp-"${VERSION}"-*.whl | aft_mcp-"${VERSION}".tar.gz) ;;
+              *) echo "::error::$(basename "$file") is not version ${VERSION}"; exit 1 ;;
+            esac
+          done
+
+      - name: Upload the distributions
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  pypi:
+    name: "Publish: PyPI"
+    # After the smoke test, which compares the image's metadata with a wheel built
+    # from the same commit.
+    needs: [dist, smoke]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/aft-mcp
+    permissions:
+      id-token: write # trusted publishing, and signing both kinds of attestation
+      attestations: write
+    steps:
+      - name: Download the distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+
+      # A GitHub attestation: gh attestation verify <file> --owner samcorky.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+
+      # Uploads through trusted publishing with PEP 740 attestations, which pypi.org
+      # shows as the files' provenance. The trusted publisher names this workflow,
+      # publish.yml, and the pypi environment.
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          attestations: true
