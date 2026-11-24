@@ -39,9 +39,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY README.md LICENSE ./
 COPY src/ src/
+# --reinstall-package rebuilds aft-mcp from this source every time: the version can be
+# the same between builds (a dev build, or none given), and uv's cache would otherwise
+# hand back a wheel built from older code (as menagerist does for its package).
 RUN --mount=type=cache,target=/root/.cache/uv \
     SETUPTOOLS_SCM_PRETEND_VERSION=${VERSION:-0.0.0} \
-    uv sync --locked --no-editable
+    uv sync --locked --no-editable --reinstall-package aft-mcp
 
 # Trim what a stdio server never uses, as menagerist does.
 RUN PYTHON_DIR="$(find /opt/python -mindepth 1 -maxdepth 1 -type d -name 'cpython-*' -print -quit)" \
