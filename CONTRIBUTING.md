@@ -136,7 +136,28 @@ of the project, so changes to it get extra care:
 - The [autofix.ci](https://autofix.ci) app runs the hooks on every pull request and may
   push a `style: apply hook fixes` commit, so pull before pushing again. It never edits
   files under `.github/workflows`.
-- Dependency, action and hook updates come from Renovate, weekly.
+- Dependency, action and hook updates come from Renovate, weekly; see
+  [Dependencies](#dependencies).
+
+## Dependencies
+
+Renovate (`.github/renovate.json`) raises updates before 9am (London) on Mondays; its
+Dependency Dashboard issue lists them under one heading per area. Each rule has a
+`description` saying why it exists.
+
+- **Release age.** As in menagerist, a new PyPI release is only proposed once it has been
+  out for a while (`security:minimumReleaseAgePypi`), so a bad or malicious release that
+  gets pulled soon after publishing never reaches a pull request; Renovate waits before
+  opening one (`internalChecksFilter: strict`). Security fixes skip the wait and are
+  raised at any time.
+- **Automerge.** Minor, patch and digest updates automerge once every required check
+  passes, grouped per area. Major updates, the Python version and lock file maintenance
+  need a review.
+- **Python.** `.python-version` is the Python CI, the image and local development use;
+  Renovate bumps it as one manual pull request. The `requires-python` floor (`>=3.14`)
+  stays put, as in calver-scm: CI runs the tests on the floor and on the newest Python,
+  so a change or a dependency that breaks either fails. Lower the floor only after
+  testing it there; the code uses 3.14 syntax.
 
 ## Versions and releases
 

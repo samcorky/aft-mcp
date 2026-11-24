@@ -54,10 +54,19 @@ jobs:
         run: shellcheck -s sh deploy/ssh-broker/aft-mcp-broker tests/broker/entrypoint.sh
 
   tests:
-    name: "Tests: pytest"
+    name: "Tests: Python ${{ matrix.python }}"
     runs-on: ubuntu-latest
-    # The full suite, including tests/test_broker.py, which builds a container.
+    # The full suite includes tests/test_broker.py, which builds a container.
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The requires-python floor and the newest Python, as calver-scm tests its range.
+        # The one matching .python-version runs the full suite with coverage; the other
+        # runs the fast suite. Update this list when the floor or the newest changes.
+        python: ["3.14", "3.15"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -69,16 +78,24 @@ jobs:
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
+          cache-suffix: ${{ matrix.python }}
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python }}
         run: uv python install
 
       - name: Install dependencies
         run: uv sync --dev
 
       - name: Run pytest
-        # Fails below the coverage floor (fail_under in pyproject.toml).
-        run: uv run poe test
+        # The full suite fails below the coverage floor (fail_under in pyproject.toml).
+        env:
+          PYTHON: ${{ matrix.python }}
+        run: |
+          if [ "$PYTHON" = "$(cat .python-version)" ]; then
+            uv run poe test
+          else
+            uv run poe test-fast
+          fi
 
   build:
     name: "Build: wheel + sdist"
