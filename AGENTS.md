@@ -60,3 +60,7 @@ the user wrote it unless told otherwise.
   comments, then stop. Don't push fixes until the user approves them, and leave
   resolving threads to the user.
 - **Never commit or push unless the user asks.** The user commits their own work.
+- **No session links.** Don't add a `Claude-Session:` trailer to commit messages, or a
+  Claude Code session link (`https://claude.ai/code/session_...`) to issues, pull
+  request descriptions or comments. A `Co-Authored-By:` trailer and the "Generated with
+  Claude Code" line are fine.
