@@ -33,21 +33,19 @@ On a server, the token or password can come from a file instead of `.env` or the
 
 ## With uvx (no checkout)
 
-[`uvx`](https://docs.astral.sh/uv/guides/tools/) (part of uv) installs aft-mcp into a cached, isolated environment and
-runs it, so there is nothing to clone or keep in sync:
+[`uvx`](https://docs.astral.sh/uv/guides/tools/) (part of uv) installs aft-mcp from PyPI into a cached, isolated
+environment and runs it, so there is nothing to clone or keep in sync:
 
 ```bash
-uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+uvx aft-mcp@2026.11.0
 ```
 
-- **Pin `<ref>`** to a release tag (such as `v2026.11.0`) or a commit, never a branch. uvx installs the pinned version
-  once and reuses it, so the code only changes when you change the ref, after reading what changed. `@main` would
-  give a different server whenever `main` moves.
-- **Upgrading** is changing the ref in the client config and restarting the client. `uvx --refresh ...` rebuilds the
-  cached environment if it ever needs it.
-
-From the first release on PyPI, the version replaces the git ref: `uvx aft-mcp@2026.11.0`. Each release's files carry
-a build-provenance attestation, so you can check where they were built.
+- **Pin a release** (`aft-mcp@2026.11.0`). uvx installs it once and reuses it, so the code only changes when you change
+  the version, after reading what changed. Plain `uvx aft-mcp` takes the newest release each time uvx refreshes.
+- **Upgrading** is changing the version in the client config and restarting the client.
+- **Provenance:** each release's files carry PEP 740 attestations, shown on pypi.org, and a GitHub attestation
+  (`gh attestation verify <file> --owner samcorky`).
+- **An unreleased commit** runs from git instead: `uvx --from git+https://github.com/samcorky/aft-mcp@<commit> aft-mcp`.
 
 ## With Docker
 
@@ -75,7 +73,7 @@ uv run --directory /path/to/aft-mcp aft-mcp
 ## Claude Code
 
 ```bash
-claude mcp add aft -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+claude mcp add aft -- uvx aft-mcp@2026.11.0
 ```
 
 Add `--scope user` to make it available in every project. Check it with `claude mcp list` or `/mcp` inside a session.
@@ -83,8 +81,8 @@ From a checkout, use `claude mcp add aft -- uv run --directory /path/to/aft-mcp 
 file, add `--env-file /path/to/prod.env` after `aft-mcp`, for example one MCP server per instance:
 
 ```bash
-claude mcp add aft-prod -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp --env-file ~/.config/aft-mcp/prod.env
-claude mcp add aft-test -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp --env-file ~/.config/aft-mcp/test.env
+claude mcp add aft-prod -- uvx aft-mcp@2026.11.0 --env-file ~/.config/aft-mcp/prod.env
+claude mcp add aft-test -- uvx aft-mcp@2026.11.0 --env-file ~/.config/aft-mcp/test.env
 ```
 
 ## Claude Desktop
@@ -96,7 +94,7 @@ Add this to `claude_desktop_config.json` (Settings, then Developer, then Edit Co
   "mcpServers": {
     "aft": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/samcorky/aft-mcp@<ref>", "aft-mcp"]
+      "args": ["aft-mcp@2026.11.0"]
     }
   }
 }
@@ -115,11 +113,7 @@ options = ClaudeAgentOptions(
     mcp_servers={
         "aft": {
             "command": "uvx",
-            "args": [
-                "--from",
-                "git+https://github.com/samcorky/aft-mcp@<ref>",
-                "aft-mcp",
-            ],
+            "args": ["aft-mcp@2026.11.0"],
         }
     },
     allowed_tools=["mcp__aft__*"],  # or list specific tools
