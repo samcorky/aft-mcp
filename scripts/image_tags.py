@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.14"
+# dependencies = []
+# ///
 """Work out the version tags of the Docker image for a parsed release tag.
 
 Run by the ``image-tags`` composite action inside the ``release`` dependency group. It

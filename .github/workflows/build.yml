@@ -91,4 +91,4 @@ jobs:
         run: uv build --wheel --out-dir "${RUNNER_TEMP}/dist"
 
       - name: Check the image and the wheel carry the same metadata
-        run: uv run --no-project python scripts/compare_package_metadata.py "${RUNNER_TEMP}"/dist/*.whl aft-mcp:local
+        run: uv run --script scripts/compare_package_metadata.py "${RUNNER_TEMP}"/dist/*.whl aft-mcp:local

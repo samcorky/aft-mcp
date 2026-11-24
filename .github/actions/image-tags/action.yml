@@ -36,4 +36,4 @@ runs:
       run: |
         set -o pipefail
         uv run --locked --only-group release calver-scm --json parse "$TAG" --tag --against-repo \
-          | uv run --locked --only-group release python scripts/image_tags.py
+          | uv run --script scripts/image_tags.py

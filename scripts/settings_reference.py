@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.14"
+# dependencies = ["aft-mcp"]
+#
+# # It reads aft-mcp's settings classes, so it runs against this checkout.
+# [tool.uv.sources]
+# aft-mcp = { path = "..", editable = true }
+# ///
 """Generate ``.env.example`` and ``docs/settings.md`` from the settings groups.
 
 Both files are written from each field's JSON Schema, description and example, so

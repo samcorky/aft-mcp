@@ -56,6 +56,10 @@ To try the server against a real AFT, copy `.env.example` to `~/.config/aft-mcp/
 to any file named by `AFT_MCP_ENV_FILE`, and fill it in (see [docs/settings.md](docs/settings.md)).
 A `.env` in the checkout is not read.
 
+Every script in `scripts/` starts with PEP 723 inline metadata (a `# /// script` block
+with `requires-python` and `dependencies`), so `uv run --script scripts/<name>.py` runs it
+with what it needs and nothing else; `tests/test_scripts.py` checks the block is there.
+
 ## Common tasks
 
 Run `uv run poe` to list every task.

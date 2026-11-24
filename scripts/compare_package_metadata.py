@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.14"
+# dependencies = []
+# ///
 """Check the Docker image and the wheel carry the same aft-mcp package metadata.
 
 The image installs aft-mcp with ``uv sync`` and a ``VERSION`` build argument, while
