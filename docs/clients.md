@@ -3,34 +3,70 @@
 The server speaks MCP over stdio, so any MCP client launches it as a subprocess. There are two ways to give the client
 a command to run.
 
+## Where the settings live
+
+The server reads its settings from the environment, then from one `.env` file:
+
+- **By default**, `aft-mcp/.env` in your config directory: `~/.config/aft-mcp/.env` on Linux and macOS
+  (`$XDG_CONFIG_HOME/aft-mcp/.env` if you set it), `%APPDATA%\aft-mcp\.env` on Windows. Make the directory readable
+  only by you, and start the file from [`.env.example`](../.env.example).
+- **`--env-file PATH`** (`aft-mcp --env-file ~/.config/aft-mcp/prod.env`), or `AFT_MCP_ENV_FILE` in the client config's
+  environment, names another file instead, for example one per AFT instance (`prod.env`, `test.env`). It must exist. Set
+  `AFT_MCP_INSTANCE=prod` (or `test`) in each, so the server's name, its instructions to the agent and every log line
+  say which instance it is.
+- **The working directory is never read**, so the server behaves the same whichever project the client starts it in.
+  If an old `.env` is still there, the server says on stderr that it ignored it.
+
+Without a `.env`, pass every setting as an environment variable in the client config instead. That puts the token in
+the client config, so prefer the file.
+
+### Secrets in files
+
+On a server, the token or password can come from a file instead of `.env` or the environment. Point
+`AFT_MCP_SECRETS_DIR` at a directory where each file is named after a variable and holds its value. The environment and
+`.env` still win over it, and the directory must exist.
+
+- **Docker:** mount a secret named `AFT_MCP_TOKEN` and set `AFT_MCP_SECRETS_DIR=/run/secrets`; see
+  [Running aft-mcp with Docker](docker.md#secrets-in-files).
+- **systemd:** `LoadCredential=AFT_MCP_TOKEN:/etc/aft-mcp/token` in the unit. systemd sets `CREDENTIALS_DIRECTORY`,
+  which aft-mcp reads when `AFT_MCP_SECRETS_DIR` isn't set.
+
 ## With uvx (no checkout)
 
 [`uvx`](https://docs.astral.sh/uv/guides/tools/) (part of uv) installs aft-mcp into a cached, isolated environment and
 runs it, so there is nothing to clone or keep in sync:
 
 ```bash
-uvx --directory /path/to/aft-config --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
 ```
 
-- **`--directory` is where the settings live.** uvx changes to that directory first, so the server reads the `.env`
-  there. Make it a directory of its own holding only that `.env` (start from [`.env.example`](../.env.example)),
-  readable only by you. Always pass it: without it the server reads `.env` from whatever directory the client starts
-  in.
 - **Pin `<ref>`** to a release tag (such as `v2026.11.0`) or a commit, never a branch. uvx installs the pinned version
   once and reuses it, so the code only changes when you change the ref, after reading what changed. `@main` would
   give a different server whenever `main` moves.
 - **Upgrading** is changing the ref in the client config and restarting the client. `uvx --refresh ...` rebuilds the
   cached environment if it ever needs it.
-- **Without a `.env`**, leave out `--directory` and pass every setting as an environment variable in the client
-  config instead. That puts the password in the client config, so prefer the `.env`.
 
-Once aft-mcp is published to PyPI ([#21](https://github.com/samcorky/aft-mcp/issues/21)), `--from git+...` becomes
-`uvx --directory /path/to/aft-config aft-mcp@2026.11.0`.
+From the first release on PyPI, the version replaces the git ref: `uvx aft-mcp@2026.11.0`. Each release's files carry
+a build-provenance attestation, so you can check where they were built.
+
+## With Docker
+
+Each release is also an image, `ghcr.io/samcorky/aft-mcp:<tag>`, for `linux/amd64` and `linux/arm64`. Mount your
+settings file and point `AFT_MCP_ENV_FILE` at it:
+
+```bash
+claude mcp add aft -- docker run -i --rm \
+  -v ~/.config/aft-mcp/.env:/config/aft-mcp.env:ro -e AFT_MCP_ENV_FILE=/config/aft-mcp.env \
+  ghcr.io/samcorky/aft-mcp:<tag>
+```
+
+[Running aft-mcp with Docker](docker.md) covers tags, secrets, why not `--env-file`, checking a setup, Claude Desktop,
+how the image is built, and building it yourself.
 
 ## From a checkout
 
-For development, or to run code you have reviewed locally, point the client at your clone. `uv run --directory`
-starts the server in the checkout, so it reads the `.env` there:
+For development, or to run code you have reviewed locally, point the client at your clone. It reads the same settings
+file as above:
 
 ```bash
 uv run --directory /path/to/aft-mcp aft-mcp
@@ -39,11 +75,17 @@ uv run --directory /path/to/aft-mcp aft-mcp
 ## Claude Code
 
 ```bash
-claude mcp add aft -- uvx --directory /path/to/aft-config --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+claude mcp add aft -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
 ```
 
 Add `--scope user` to make it available in every project. Check it with `claude mcp list` or `/mcp` inside a session.
-From a checkout, use `claude mcp add aft -- uv run --directory /path/to/aft-mcp aft-mcp`.
+From a checkout, use `claude mcp add aft -- uv run --directory /path/to/aft-mcp aft-mcp`. To use another settings
+file, add `--env-file /path/to/prod.env` after `aft-mcp`, for example one MCP server per instance:
+
+```bash
+claude mcp add aft-prod -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp --env-file ~/.config/aft-mcp/prod.env
+claude mcp add aft-test -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp --env-file ~/.config/aft-mcp/test.env
+```
 
 ## Claude Desktop
 
@@ -54,18 +96,15 @@ Add this to `claude_desktop_config.json` (Settings, then Developer, then Edit Co
   "mcpServers": {
     "aft": {
       "command": "uvx",
-      "args": [
-        "--directory", "/path/to/aft-config",
-        "--from", "git+https://github.com/samcorky/aft-mcp@<ref>",
-        "aft-mcp"
-      ]
+      "args": ["--from", "git+https://github.com/samcorky/aft-mcp@<ref>", "aft-mcp"]
     }
   }
 }
 ```
 
 Claude Desktop may not see the `PATH` of your shell; if it can't find `uvx`, give its full path as `command` (`which
-uvx`, or `where uvx` on Windows).
+uvx`, or `where uvx` on Windows). To use another settings file, add `"--env-file", "/path/to/prod.env"` after
+`"aft-mcp"` in `args`.
 
 ## Claude Agent SDK
 
@@ -77,8 +116,6 @@ options = ClaudeAgentOptions(
         "aft": {
             "command": "uvx",
             "args": [
-                "--directory",
-                "/path/to/aft-config",
                 "--from",
                 "git+https://github.com/samcorky/aft-mcp@<ref>",
                 "aft-mcp",
@@ -91,6 +128,11 @@ options = ClaudeAgentOptions(
 async for message in query(prompt="What is on my AFT board?", options=options):
     print(message)
 ```
+
+## On a server, over SSH
+
+To keep the credential off workstations, run aft-mcp on a server and point the client at `ssh -T aft-broker prod`; see
+[Running on a server](remote.md).
 
 ## Other MCP clients
 

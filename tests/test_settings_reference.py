@@ -8,10 +8,11 @@ import os
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import settings_reference
 from settings_reference import (
     ENV_EXAMPLE_PATH,
     SETTINGS_DOC_PATH,
-    build_entries,
+    build_sections,
     main,
     reference_files,
     render_env_example,
@@ -19,7 +20,7 @@ from settings_reference import (
     write_reference_files,
 )
 
-from aft_mcp.settings import Settings, SettingsError, load_settings
+from aft_mcp.settings import ConnectionSettings, SettingsError, load_settings
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,7 +28,10 @@ if TYPE_CHECKING:
 
 def _fake_schema(monkeypatch: pytest.MonkeyPatch, properties: dict[str, Any]) -> None:
     schema = {"properties": properties, "required": []}
-    monkeypatch.setattr(Settings, "model_json_schema", lambda: schema)
+    monkeypatch.setattr(ConnectionSettings, "model_json_schema", lambda: schema)
+    monkeypatch.setattr(
+        settings_reference, "GROUPS", {"connection": ConnectionSettings}
+    )
 
 
 @pytest.fixture
@@ -47,10 +51,10 @@ def test_the_example_loads_once_a_way_to_sign_in_is_set(
         load_settings(env_file=env_example)
     monkeypatch.setenv("AFT_MCP_TOKEN", "aft_token_value")
     loaded = load_settings(env_file=env_example)
-    assert loaded.token is not None
-    assert loaded.username is None
-    assert loaded.read_only is False
-    assert loaded.board_ids is None
+    assert loaded.auth.token is not None
+    assert loaded.auth.username is None
+    assert loaded.tools.read_only is False
+    assert loaded.tools.board_ids is None
 
 
 @pytest.mark.usefixtures("no_aft_env")
@@ -62,7 +66,7 @@ def test_uncommented_optional_examples_load_too(
     env_file = tmp_path / ".env"
     env_file.write_text(text.replace("# AFT_MCP_", "AFT_MCP_"), encoding="utf-8")
     monkeypatch.setenv("AFT_MCP_PASSWORD", "secret")
-    assert load_settings(env_file=env_file).board_ids == frozenset({12, 15})
+    assert load_settings(env_file=env_file).tools.board_ids == [12, 15]
 
 
 def test_needed_settings_are_set_and_optional_ones_commented() -> None:
@@ -85,6 +89,15 @@ def test_the_reference_describes_each_variable() -> None:
     assert "| `AFT_MCP_READ_ONLY` | no | true or false | `false` | any |" in doc
     assert "comma-separated list of whole numbers | unset | each more than 0" in doc
     assert "| `AFT_MCP_TOKEN` | no | secret | unset | not empty |" in doc
+    # Environment-only settings are documented under their real names, aliases too,
+    # but never offered in .env.example.
+    assert "## Read from the environment only" in doc
+    for name in ("AFT_MCP_ENV_FILE", "AFT_MCP_SECRETS_DIR", "CREDENTIALS_DIRECTORY"):
+        assert f"| `{name}` | no | path | unset |" in doc
+    assert "| `SSH_CONNECTION` | no | text | unset |" in doc
+    env_example = reference_files()[ENV_EXAMPLE_PATH]
+    assert "SSH_CONNECTION" not in env_example
+    assert "CREDENTIALS_DIRECTORY" not in env_example
     assert "| `AFT_MCP_LOG_FORMAT` | no | text | `logfmt` | `logfmt` or `json` |" in doc
 
 
@@ -100,10 +113,10 @@ def test_a_secret_never_gets_a_value(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         },
     )
-    entries = build_entries()
-    for text in (render_env_example(entries), render_settings_doc(entries)):
+    sections = build_sections()
+    for text in (render_env_example(sections), render_settings_doc(sections)):
         assert "hunter2" not in text
-    assert "# AFT_MCP_TOKEN=" in render_env_example(entries)
+    assert "# AFT_MCP_TOKEN=" in render_env_example(sections)
 
 
 def test_values_a_dotenv_reader_would_split_are_quoted(
@@ -121,9 +134,9 @@ def test_values_a_dotenv_reader_would_split_are_quoted(
             "blob": {"description": "Anything.", "type": "object"},
         },
     )
-    entries = build_entries()
-    assert '# AFT_MCP_NOTE="two words"' in render_env_example(entries)
-    doc = render_settings_doc(entries)
+    sections = build_sections()
+    assert '# AFT_MCP_NOTE="two words"' in render_env_example(sections)
+    doc = render_settings_doc(sections)
     assert "| `AFT_MCP_NOTE` | no | text | `two words` | any | A \\| B. |" in doc
     assert (
         "| `AFT_MCP_TAGS` | no | comma-separated list of texts | unset | any |" in doc
@@ -136,8 +149,10 @@ def test_a_field_without_a_description_is_refused(
 ) -> None:
     """An undocumented setting fails the generator rather than shipping blank."""
     _fake_schema(monkeypatch, {"mystery": {"type": "string"}})
-    with pytest.raises(ValueError, match=r"Settings\.mystery needs a description"):
-        build_entries()
+    with pytest.raises(
+        ValueError, match=r"ConnectionSettings\.mystery needs a description"
+    ):
+        build_sections()
 
 
 def test_only_stale_files_are_written(tmp_path: Path) -> None:

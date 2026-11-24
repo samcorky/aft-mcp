@@ -1,0 +1,512 @@
+# Ported from menagerist's publish workflow, plus PyPI: one workflow publishes a release.
+name: Publish
+
+# Builds the image on a native runner for each platform and pushes it to GHCR.
+#   - a published release:  the wheel and sdist to PyPI (dist, pypi), and the image:
+#                           <version>, the month and year tags and latest, each only
+#                           when no newer release covers it (.github/actions/image-tags)
+#   - a push to main:       edge and sha-<commit>
+#   - run by hand:          a build only, unless "push" is ticked (sha-<commit>, plus
+#                           edge when run from main)
+# The image is smoke tested (build.yml) before anything is pushed.
+#
+# Pass "tag" on a manual run to preview the tags a release of that tag would publish
+# (the "Work out the tags" job only, nothing built or pushed), without creating a
+# release or a git tag.
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      push:
+        description: Push the image to GHCR (otherwise build only)
+        type: boolean
+        default: false
+      tag:
+        description: Preview the image tags for this release tag only, for example v2026.11.0.post1 (leave empty to build as usual)
+        type: string
+        default: ''
+
+concurrency:
+  # A manual run that pushes nothing has its own group, so trying a build never cancels
+  # the run for a merge to main.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && !inputs.push && '-dry-run' || '' }}
+  # Never abandon a release half way; a newer push to main replaces an older one.
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
+permissions:
+  contents: read
+
+env:
+  # GHCR needs a lower-case name; the repository is already lower case.
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+  PUSH: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+
+jobs:
+  version:
+    name: Work out the version
+    # A manual run with "tag" set only previews the tags job; it builds nothing.
+    if: github.event_name != 'workflow_dispatch' || inputs.tag == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      timestamp: ${{ steps.version.outputs.timestamp }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The version is worked out from the tags.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+          cache-suffix: release
+          # Restore only: a tag-scoped cache is rarely reused, and these privileged
+          # workflows should not write to the cache.
+          save-cache: false
+
+      # Fails on a broken CalVer config; warns about a shallow clone or no tag yet.
+      - name: Check the CalVer setup
+        run: uv run --locked --only-group release calver-scm doctor
+
+      - name: Read the version from the tags
+        id: version
+        run: |
+          version="$(uv run --locked --only-group release calver-scm --format plain version)"
+          timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            echo "version=${version}"
+            echo "timestamp=${timestamp}"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      # A build that is not a release has no release tag, so say what a release made
+      # now would publish. Informational: it never fails the build.
+      - name: Plan the next release tag
+        id: next
+        if: github.event_name != 'release'
+        continue-on-error: true
+        run: |
+          tag="$(uv run --locked --only-group release calver-scm --format plain next-tag)"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Work out the next release's image tags
+        id: next_tags
+        if: steps.next.outputs.tag != ''
+        continue-on-error: true
+        uses: ./.github/actions/image-tags
+        with:
+          tag: ${{ steps.next.outputs.tag }}
+
+      - name: Show what a release made now would publish
+        if: github.event_name != 'release'
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+          PREVIEW: ${{ steps.next_tags.outputs.preview }}
+        run: |
+          if [[ -n "$PREVIEW" ]]; then
+            # Seven characters, as docker/metadata-action's sha tag. A literal <commit>
+            # would be read as an HTML tag and vanish from the rendered summary.
+            message="A release made now would be tagged ${TAG} and publish ${PREVIEW}, sha-${GITHUB_SHA::7}."
+          else
+            message="The next release tag could not be worked out; run poe release-tag locally."
+          fi
+          echo "$message"
+          {
+            echo "### Next release"
+            echo
+            echo "$message"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # A release must be made from a tag on main, or nothing is built or published
+      # for it (every image job and the PyPI jobs need this one).
+      - name: Check the release tag is on main
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "refs/tags/${TAG}" origin/main; then
+            echo "::error::${TAG} is not on main; no image is published."
+            exit 1
+          fi
+
+      # A release is built from its tag, so the two must agree.
+      - name: Check the release tag
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          uv run --locked --only-group release calver-scm validate "$TAG" --tag
+          if [[ "${TAG#v}" != "$VERSION" ]]; then
+            echo "::error::The release tag is '${TAG}' but the version built from it is '${VERSION}'. Tags look like vYYYY.MM.PATCH."
+            exit 1
+          fi
+
+  tags:
+    name: Work out the tags
+    # A manual run with "tag" set only previews these; it builds and pushes nothing.
+    if: github.event_name != 'workflow_dispatch' || inputs.tag != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # image-tags compares the release with the other tags.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+
+      # This job only runs for a release or a manual preview (its "if", above), so
+      # exactly one of these is ever set.
+      - name: Read the tag to work out
+        id: tag
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+          PREVIEW_TAG: ${{ inputs.tag }}
+        run: echo "tag=${RELEASE_TAG}${PREVIEW_TAG}" >> "$GITHUB_OUTPUT"
+
+      # type=pep440 skips the pattern for a .post release, so the month and year tags
+      # and latest come from the image-tags action and are handed over as raw tags. It
+      # holds back any tag a newer release already covers, so a hotfix for an older
+      # month cannot move latest backwards.
+      # A push to main has no release tag to work from, and needs none: edge and the sha
+      # tag below are all it publishes, so the step is skipped rather than given nothing.
+      - name: Work out the partial version tags
+        id: partial
+        if: steps.tag.outputs.tag != '' && (github.event_name != 'release' || !github.event.release.prerelease)
+        uses: ./.github/actions/image-tags
+        with:
+          tag: ${{ steps.tag.outputs.tag }}
+
+      # On a real release, type=pep440 reads the pushed tag itself. A manual preview
+      # has no such tag to read, so "value" hands it the typed tag directly; the
+      # result is identical either way since pep440 only parses the string.
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=edge
+            type=pep440,pattern={{version}}${{ github.event_name == 'workflow_dispatch' && format(',value={0}', steps.tag.outputs.tag) || '' }}
+            type=sha
+            ${{ steps.partial.outputs.tags }}
+
+      - name: Show the tags
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          PREVIEW: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "Event: ${GITHUB_EVENT_NAME}, ref: ${GITHUB_REF}, pushed: ${PUSH}"
+          echo "Tags:"
+          echo "$TAGS"
+          {
+            if [[ "$PREVIEW" == "true" ]]; then
+              echo "### Image tags (preview only, nothing built or pushed)"
+            else
+              echo "### Image tags (pushed: ${PUSH})"
+            fi
+            echo
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke:
+    name: Build and smoke test
+    # A manual run with "tag" set only previews the tags job; it builds nothing.
+    if: github.event_name != 'workflow_dispatch' || inputs.tag == ''
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+
+  image:
+    name: Build ${{ matrix.platform }}
+    needs: [version, smoke]
+    # A manual run with "tag" set only previews the tags job; it builds nothing.
+    if: github.event_name != 'workflow_dispatch' || inputs.tag == ''
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Name the platform for file names
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show the build arguments
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          BUILD_TIMESTAMP: ${{ needs.version.outputs.timestamp }}
+          PLATFORM: ${{ matrix.platform }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          args="$(printf '%s\n' \
+            "platform=${PLATFORM}" \
+            "image=${REGISTRY_IMAGE}" \
+            "pushing=${PUSH}" \
+            "VERSION=${VERSION}" \
+            "COMMIT_SHA=${COMMIT_SHA}" \
+            "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}")"
+          echo "$args"
+          {
+            echo "### Build arguments (${PLATFORM})"
+            echo
+            echo '```'
+            echo "$args"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Pushed by digest with no tag; the publish job below puts the tags on the
+      # combined multi-platform image.
+      - name: Build the image
+        id: bake
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          COMMIT_SHA: ${{ github.sha }}
+          BUILD_TIMESTAMP: ${{ needs.version.outputs.timestamp }}
+        with:
+          # Build the checkout; .dockerignore keeps the context to what the image needs.
+          source: .
+          files: docker-bake.hcl
+          targets: aft-mcp
+          set: |
+            *.tags=
+            *.platform=${{ matrix.platform }}
+            *.attest=type=provenance,disabled=true
+            *.attest=type=sbom,disabled=true
+            *.output=${{ env.PUSH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY_IMAGE) || 'type=cacheonly' }}
+            *.cache-from=type=gha,scope=image-${{ env.PLATFORM_PAIR }}
+            *.cache-to=type=gha,mode=max,scope=image-${{ env.PLATFORM_PAIR }}
+
+      - name: Export the digest
+        if: env.PUSH == 'true'
+        env:
+          METADATA: ${{ steps.bake.outputs.metadata }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/digests"
+          digest="$(jq -r '.["aft-mcp"]["containerimage.digest"]' <<< "$METADATA")"
+          touch "${RUNNER_TEMP}/digests/${digest#sha256:}"
+
+      - name: Upload the digest
+        if: env.PUSH == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish the multi-platform image
+    needs: [tags, image]
+    if: github.event_name != 'workflow_dispatch' || inputs.push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download the digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the combined image
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          TAGS: ${{ needs.tags.outputs.tags }}
+        run: |
+          set -euo pipefail
+          tag_args=()
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] && tag_args+=(-t "$tag")
+          done <<< "$TAGS"
+          sources=()
+          for digest in *; do
+            sources+=("${REGISTRY_IMAGE}@sha256:${digest}")
+          done
+          # GHCR reads the package description and repository link from the index
+          # manifest, not from the per-platform image labels, so copy the
+          # Dockerfile's OCI labels onto the index.
+          annotation_args=()
+          while IFS= read -r annotation; do
+            annotation_args+=(--annotation "index:${annotation}")
+          done < <(
+            docker buildx imagetools inspect --format '{{json .Image}}' "${sources[0]}" |
+              jq -r '(.config.Labels // {}) | to_entries[]
+                | select(.key | startswith("org.opencontainers.image."))
+                | "\(.key)=\(.value)"'
+          )
+          if [[ ${#annotation_args[@]} -eq 0 ]]; then
+            echo "::error::No OCI labels found on ${sources[0]}"
+            exit 1
+          fi
+          annotations="$(printf '%s\n' "${annotation_args[@]}" | grep -v '^--annotation$' | sed 's/^index://')"
+          echo "Index annotations:"
+          echo "$annotations"
+          {
+            echo "### Index annotations"
+            echo
+            echo '```'
+            echo "$annotations"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Combining ${#sources[@]} platform image(s) into: ${tag_args[*]}"
+          docker buildx imagetools create "${annotation_args[@]}" "${tag_args[@]}" "${sources[@]}"
+
+      - name: Inspect the image
+        env:
+          VERSION_TAG: ${{ needs.tags.outputs.version }}
+        run: docker buildx imagetools inspect "${REGISTRY_IMAGE}:${VERSION_TAG}"
+
+      # Signed with the workflow's OIDC identity and stored beside the image in
+      # GHCR; verify with `gh attestation verify oci://<image> --owner <owner>`.
+      - name: Get the image index digest
+        id: index
+        env:
+          VERSION_TAG: ${{ needs.tags.outputs.version }}
+        run: |
+          set -euo pipefail
+          digest="$(docker buildx imagetools inspect --format '{{json .Manifest}}' "${REGISTRY_IMAGE}:${VERSION_TAG}" | jq -r .digest)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY_IMAGE }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
+
+  dist:
+    name: "Build: wheel + sdist for PyPI"
+    # Only a release goes to PyPI; the version job has checked its tag (CalVer, on main,
+    # and the same as the version built from it).
+    needs: version
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the version comes from the tags
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: false # no cache for files that are published
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Build and test the distributions
+        run: uv run --frozen poe build-check
+
+      # The image is built with the version job's VERSION; the files must say the same.
+      - name: Check the files carry the release's version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for file in dist/*; do
+            case "$(basename "$file")" in
+              aft_mcp-"${VERSION}"-*.whl | aft_mcp-"${VERSION}".tar.gz) ;;
+              *) echo "::error::$(basename "$file") is not version ${VERSION}"; exit 1 ;;
+            esac
+          done
+
+      - name: Upload the distributions
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  pypi:
+    name: "Publish: PyPI"
+    # After the smoke test, which compares the image's metadata with a wheel built
+    # from the same commit.
+    needs: [dist, smoke]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/aft-mcp
+    permissions:
+      id-token: write # trusted publishing, and signing both kinds of attestation
+      attestations: write
+    steps:
+      - name: Download the distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+
+      # A GitHub attestation: gh attestation verify <file> --owner samcorky.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+
+      # Uploads through trusted publishing with PEP 740 attestations, which pypi.org
+      # shows as the files' provenance. The trusted publisher names this workflow,
+      # publish.yml, and the pypi environment.
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          attestations: true

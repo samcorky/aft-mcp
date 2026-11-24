@@ -1,22 +1,25 @@
 import asyncio
 import json
-import runpy
-from importlib.metadata import entry_points
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
+import structlog
 from fastmcp import FastMCP
 from pydantic import SecretStr
 
 from aft_mcp import server
+from aft_mcp.audit import LoggingError
 from aft_mcp.board_guard import BoardGuard
 from aft_mcp.settings import Settings, SettingsError
 from aft_mcp.swagger_convert import convert
+from tests.support import changed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
+
+    from tests.conftest import LogRecords
 
 
 def tool_names(spec: dict[str, Any], *, read_only: bool = False) -> set[str]:
@@ -62,12 +65,17 @@ def test_only_safe_reads_and_allowed_writes_become_tools(
         "get_boards_by_board_id",
         "get_boards_columns",
         "get_cards_by_card_id",
+        "get_global_boards",
+        "get_global_boards_cards",
         # Allowed writes inside a board
         "post_boards_columns",
         "patch_columns_by_column_id",
         "post_columns_cards",
         "patch_cards_by_card_id",
         "post_cards_comments",
+        # Allowed writes on a global board
+        "post_global_boards_cards",
+        "patch_global_boards_cards_by_card_id",
     }
 
 
@@ -79,6 +87,8 @@ def test_read_only_mode_exposes_only_the_safe_reads(
         "get_boards_by_board_id",
         "get_boards_columns",
         "get_cards_by_card_id",
+        "get_global_boards",
+        "get_global_boards_cards",
     }
 
 
@@ -88,7 +98,7 @@ def test_create_server_honours_read_only(
     aft_like_spec: dict[str, Any],
 ) -> None:
     stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
-    mcp = server.create_server(settings.model_copy(update={"read_only": True}))
+    mcp = server.create_server(changed(settings, {"read_only": True}))
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert names
     assert all(name.startswith("get_") for name in names)
@@ -102,6 +112,7 @@ def test_never_exposes_delete_board_writes_or_side_effect_gets(
     assert "post_boards" not in names  # create a board
     assert "patch_boards_by_board_id" not in names  # board-level change
     assert "get_database_backup" not in names  # GET that creates a backup
+    assert "patch_global_boards_by_global_board_id" not in names  # settings
 
 
 # Reviewed snapshots of the exposure lists in server.py. Changing either list fails
@@ -122,6 +133,8 @@ REVIEWED_WRITES = {
     ("PATCH", r"^/api/columns/\{column_id\}$"),
     ("POST", r"^/api/boards/\{board_id\}/columns$"),
     ("POST", r"^/api/columns/\{column_id\}/cards$"),
+    ("POST", r"^/api/global-boards/\{global_board_id\}/cards$"),
+    ("PATCH", r"^/api/global-boards/\{global_board_id\}/cards/\{card_id\}$"),
 }
 REVIEWED_SIDE_EFFECT_GETS = {
     r"^/api/database/backup$",
@@ -147,6 +160,9 @@ def test_each_allowed_write_is_narrow(method: str, pattern: str) -> None:
     assert ".+" not in pattern, "must not use wildcards"
     assert not pattern.startswith(r"^/api/boards/\{board_id\}$"), "board-level write"
     assert pattern != "^/api/boards$", "creating boards is not allowed"
+    assert pattern != r"^/api/global-boards/\{global_board_id\}$", (
+        "global board settings"
+    )
 
 
 # --- the HTTP client ---------------------------------------------------------------
@@ -165,17 +181,18 @@ def test_build_client_guards_the_boards_when_board_ids_is_set(
     settings: Settings,
 ) -> None:
     assert not isinstance(server.build_client(settings)._transport, BoardGuard)
-    guarded = settings.model_copy(update={"board_ids": frozenset({12})})
+    guarded = changed(settings, {"board_ids": frozenset({12})})
     assert isinstance(server.build_client(guarded)._transport, BoardGuard)
 
 
 def test_build_client_sends_a_token_as_bearer(settings: Settings) -> None:
-    with_token = settings.model_copy(
-        update={
+    with_token = changed(
+        settings,
+        {
             "token": SecretStr("aft_token_value"),
             "username": None,
             "password": None,
-        }
+        },
     )
     client = server.build_client(with_token)
     request = client.build_request("GET", "/api/boards")
@@ -188,7 +205,7 @@ def test_build_client_sends_a_token_as_bearer(settings: Settings) -> None:
 
 
 def test_build_auth_never_sends_a_missing_password(settings: Settings) -> None:
-    incomplete = settings.model_copy(update={"password": None})
+    incomplete = changed(settings, {"password": None})
     with pytest.raises(SettingsError):
         server.build_auth(incomplete)
 
@@ -209,10 +226,51 @@ def test_load_spec_from_url_follows_redirects(monkeypatch: pytest.MonkeyPatch) -
         return httpx2.Response(200, json={"swagger": "2.0"})
 
     seen = stub_http(monkeypatch, handler)
-    assert server.load_spec_from_url("https://aft.test/old", timeout=1) == {
+    assert server.load_spec_from_url(
+        "https://aft.test/old", timeout=1, allow_insecure=False
+    ) == {"swagger": "2.0"}
+    assert [r.url.path for r in seen] == ["/old", "/new"]
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://elsewhere.test/api/apispec.json",  # another host
+        "https://aft.test:8443/api/apispec.json",  # another port
+    ],
+)
+def test_load_spec_from_url_refuses_a_redirect_off_the_host(
+    monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.host == "aft.test" and request.url.port is None:
+            return httpx2.Response(302, headers={"Location": location})
+        return httpx2.Response(200, json={"swagger": "2.0"})
+
+    stub_http(monkeypatch, handler)
+    with pytest.raises(SettingsError, match="redirected to another host or port"):
+        server.load_spec_from_url(
+            "https://aft.test/api/apispec.json", timeout=1, allow_insecure=True
+        )
+
+
+def test_load_spec_from_url_refuses_a_redirect_to_http_unless_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.scheme == "https":
+            return httpx2.Response(
+                302, headers={"Location": "http://aft.test:443/api/apispec.json"}
+            )
+        return httpx2.Response(200, json={"swagger": "2.0"})
+
+    stub_http(monkeypatch, handler)
+    url = "https://aft.test/api/apispec.json"
+    with pytest.raises(SettingsError, match="redirected to http"):
+        server.load_spec_from_url(url, timeout=1, allow_insecure=False)
+    assert server.load_spec_from_url(url, timeout=1, allow_insecure=True) == {
         "swagger": "2.0"
     }
-    assert [r.url.path for r in seen] == ["/old", "/new"]
 
 
 def test_load_spec_from_url_raises_on_http_error(
@@ -220,7 +278,9 @@ def test_load_spec_from_url_raises_on_http_error(
 ) -> None:
     stub_http(monkeypatch, lambda _: httpx2.Response(500))
     with pytest.raises(httpx2.HTTPStatusError):
-        server.load_spec_from_url("https://aft.test/api/apispec.json", timeout=1)
+        server.load_spec_from_url(
+            "https://aft.test/api/apispec.json", timeout=1, allow_insecure=False
+        )
 
 
 def test_load_spec_prefers_the_file(
@@ -232,7 +292,7 @@ def test_load_spec_prefers_the_file(
     path = tmp_path / "spec.json"
     path.write_text(json.dumps(aft_like_spec), encoding="utf-8")
     seen = stub_http(monkeypatch, lambda _: httpx2.Response(500))
-    from_file = settings.model_copy(update={"spec_file": path})
+    from_file = changed(settings, {"spec_file": path})
     assert server.load_spec(from_file)["openapi"] == "3.0.3"
     assert seen == []
 
@@ -274,16 +334,52 @@ def test_main_loads_the_settings_then_runs(
         def run(self) -> None:
             calls.append("run")
 
-    monkeypatch.setattr(server, "load_settings", lambda _env_file: settings)
+    monkeypatch.setattr(server, "load_settings", lambda *_: settings)
     monkeypatch.setattr(server, "create_server", FakeServer)
     server.main()
     assert calls == [settings, "run"]
 
 
+def test_main_warns_about_each_http_url(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, log_records: LogRecords
+) -> None:
+    insecure = changed(
+        settings,
+        {
+            "base_url": "http://aft.test",
+            "spec_url": None,
+            "allow_insecure": True,
+        },
+    )
+    monkeypatch.setattr(server, "load_settings", lambda *_: insecure)
+    monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
+    monkeypatch.setattr(
+        server, "create_server", lambda _s: type("S", (), {"run": lambda _self: None})()
+    )
+    server.main()
+    warnings = [r for r in log_records() if r["event"] == "insecure_url"]
+    assert [w["setting"] for w in warnings] == ["AFT_MCP_BASE_URL", "AFT_MCP_SPEC_URL"]
+    assert {w["level"] for w in warnings} == {"warning"}
+
+
+def test_main_exits_when_building_the_server_finds_a_settings_problem(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    def refuse(_settings: Settings) -> FastMCP:
+        raise SettingsError(["the spec at x redirected to http: y"])
+
+    monkeypatch.setattr(server, "load_settings", lambda *_: settings)
+    monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
+    monkeypatch.setattr(server, "create_server", refuse)
+    with pytest.raises(SystemExit) as exited:
+        server.main()
+    assert "redirected to http" in str(exited.value.code)
+
+
 def test_main_exits_listing_every_settings_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fail(_env_file: Path | None) -> Settings:
+    def fail(_env_file: Path | None, _secrets: Path | None) -> Settings:
         raise SettingsError(["AFT_MCP_BASE_URL: missing", "AFT_MCP_TIMEOUT: missing"])
 
     monkeypatch.setattr(server, "load_settings", fail)
@@ -293,19 +389,107 @@ def test_main_exits_listing_every_settings_problem(
     assert "AFT_MCP_TIMEOUT: missing" in str(exited.value.code)
 
 
+def test_main_exits_when_the_named_env_file_is_missing(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AFT_MCP_ENV_FILE", str(tmp_path / "missing.env"))
+    with pytest.raises(SystemExit) as exited:
+        server.main()
+    assert "AFT_MCP_ENV_FILE: no such file" in str(exited.value.code)
+
+
+def test_a_dot_env_in_the_working_directory_gets_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config = tmp_path / "config.env"
+    server.warn_about_working_directory_env(config)  # no ./.env: nothing to say
+    assert capsys.readouterr().err == ""
+
+    Path(".env").write_text("AFT_MCP_BASE_URL=https://elsewhere.test\n", "utf-8")
+    server.warn_about_working_directory_env(config)
+    err = capsys.readouterr().err
+    assert "ignoring .env in the working directory" in err
+    assert str(config) in err
+    assert "elsewhere" not in err  # never reads it
+
+    server.warn_about_working_directory_env(Path(".env"))  # it is the named file
+    assert capsys.readouterr().err == ""
+
+
 def test_importing_the_module_has_no_side_effects() -> None:
     # Regression: the server used to be built at import time, which needed the
     # network and a full .env just to import it.
     assert not hasattr(server, "mcp")
 
 
-def test_python_m_aft_mcp_runs_main(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(server, "main", lambda: calls.append("main"))
-    runpy.run_module("aft_mcp", run_name="__main__")
-    assert calls == ["main"]
+def test_without_an_instance_the_server_is_plain_aft(settings: Settings) -> None:
+    assert server.server_identity(settings) == ("AFT", None)
 
 
-def test_installs_the_aft_mcp_command() -> None:
-    (script,) = entry_points(group="console_scripts", name="aft-mcp")
-    assert script.value == "aft_mcp.server:main"
+def test_the_instance_names_the_server_and_its_instructions(
+    monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
+    aft_like_spec: dict[str, Any],
+) -> None:
+    stub_http(monkeypatch, lambda _: httpx2.Response(200, json=aft_like_spec))
+    mcp = server.create_server(changed(settings, {"instance": "prod"}))
+    assert mcp.name == "AFT (prod)"
+    assert mcp.instructions is not None
+    assert "AFT instance named 'prod'" in mcp.instructions
+
+
+def test_main_adds_the_instance_to_every_log_line(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, log_records: LogRecords
+) -> None:
+    class LoggingServer:
+        def run(self) -> None:
+            structlog.get_logger("aft_mcp.test").info("serving")
+
+    labelled = changed(settings, {"instance": "test"})
+    monkeypatch.setattr(server, "load_settings", lambda *_: labelled)
+    monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
+    monkeypatch.setattr(server, "create_server", lambda _s: LoggingServer())
+    server.main()
+    assert log_records()[-1]["instance"] == "test"
+
+
+def test_main_passes_the_log_settings_and_binds_the_ssh_client(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, log_records: LogRecords
+) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    class LoggingServer:
+        def run(self) -> None:
+            structlog.get_logger("aft_mcp.test").info("serving")
+
+    to_syslog = changed(
+        settings,
+        {"log_syslog": True, "log_stderr": False, "log_syslog_facility": "auth"},
+    )
+    monkeypatch.setenv("SSH_CONNECTION", "203.0.113.5 52114 192.0.2.1 22")
+    monkeypatch.setattr(server, "load_settings", lambda *_: to_syslog)
+    monkeypatch.setattr(
+        server, "configure_logging", lambda *a, **k: calls.append((a, k))
+    )
+    monkeypatch.setattr(server, "create_server", lambda _s: LoggingServer())
+    server.main()
+    assert calls == [
+        (("logfmt",), {"to_stream": False, "syslog_facility": "auth"}),
+    ]
+    assert log_records()[-1]["ssh_client"] == "203.0.113.5:52114"
+
+
+def test_main_exits_when_syslog_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    def unreachable(*_: object, **__: object) -> None:
+        raise LoggingError("can't log to syslog at /dev/log: No such file")
+
+    monkeypatch.setattr(server, "load_settings", lambda *_: settings)
+    monkeypatch.setattr(server, "configure_logging", unreachable)
+    with pytest.raises(SystemExit) as exited:
+        server.main()
+    assert exited.value.code == "aft-mcp: can't log to syslog at /dev/log: No such file"

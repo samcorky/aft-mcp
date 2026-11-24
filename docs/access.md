@@ -23,7 +23,8 @@ without API tokens, use the user's email and password instead.
   else. If the agent misbehaves, disable that one user without affecting your own account.
 
 The tools only work where the user has permission. A write on a board where it has read-only access is refused by AFT
-with a 403. `get_roles_my_roles` and `get_permissions_mapping` show what the user can currently do.
+with a 403. `get_auth_me` returns the user's effective `permissions`; `get_roles_my_roles` needs a role-management
+permission, so it returns 403 for a normal user.
 
 ## Read-only mode
 
@@ -42,8 +43,9 @@ every request a tool sends, before it reaches AFT:
 - `get_boards` lists only the listed boards, and card search searches only them.
 - A few tools that are not about a board keep working: the user's own profile and roles, the permission model, and
   the server's version, health, timezone and branding.
-- Every other tool is refused, because the server can't tell which boards it would reach. That includes global boards,
-  schedules, notifications and public board links, and any endpoint AFT adds later.
+- Every other tool is refused, because the server can't tell which boards it would reach. That includes global boards
+  (so promoting a card to one is refused too), schedules, notifications and public board links, and any endpoint AFT
+  adds later.
 
 To check an id, the server makes extra read requests as the same user: it reads each listed board's cards (once, and
 again when it meets a column or checklist item it doesn't know) and reads a card before acting on it. Unset
@@ -54,7 +56,8 @@ again when it meets a column or checklist item it doesn't know) and reads a card
 The server logs every tool call to stderr, allowed or refused, with [structlog](https://www.structlog.org/). Each HTTP
 request to AFT gets an `aft_response` line with its method, path and status, and each call ends with a `tool_result`
 line with the outcome (`ok` or `error`, plus the exception type) and its duration. Every line from one call carries the
-same `call` id, the `tool` and the id arguments it was called with (`*_id`, `*_ids`).
+same `call` id, the `tool` and the id arguments it was called with (`*_id`, `*_ids`). With `AFT_MCP_INSTANCE` set,
+every line also carries `instance`.
 
 ```text
 timestamp=2026-11-23T12:00:01.204Z level=info logger=aft_mcp.audit event=aft_response call=0c3e3ff3 tool=patch_cards_done method=PATCH path=/api/cards/42/done status=200 card_id=42
@@ -72,6 +75,15 @@ INFO lines are dropped, since `aft_response` covers them without the query strin
 Request and response bodies, query strings and error messages are never logged, so card text and credentials stay out
 of it. MCP clients keep stderr apart from the protocol stream; Claude Code and Claude Desktop write it to their MCP
 server logs.
+
+### On a server: syslog
+
+When aft-mcp runs on a server and is reached over SSH, its stderr travels back to the client, so the log ends up on
+the workstation rather than the server. `AFT_MCP_LOG_SYSLOG=true` also sends every line to the local syslog
+(`/dev/log`, ident `aft-mcp`), with `AFT_MCP_LOG_SYSLOG_FACILITY` (default `user`; `auth` or `authpriv` puts it next to
+sshd's lines). `AFT_MCP_LOG_STDERR=false` then stops the client receiving the log at all. When `SSH_CONNECTION` is set,
+every line carries `ssh_client` (the client's address and port). A missing syslog socket stops the server rather than
+losing the log.
 
 ## Client permissions
 

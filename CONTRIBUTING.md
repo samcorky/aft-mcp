@@ -52,15 +52,25 @@ run them. There are three layers:
 | `tests/test_server.py`          | Configuration, spec loading, and which endpoints become tools (with the reviewed snapshots) |
 | `tests/test_mcp.py`             | A real MCP client: handshake, tool calls and the HTTP each one sends to a stubbed AFT, plus an `e2e` test that runs `python -m aft_mcp` over stdio against a local fake AFT |
 
-To try the server against a real AFT, copy `.env.example` to `.env` and fill it in (see
-[docs/settings.md](docs/settings.md)).
+To try the server against a real AFT, copy `.env.example` to `~/.config/aft-mcp/.env`, or
+to any file named by `AFT_MCP_ENV_FILE`, and fill it in (see [docs/settings.md](docs/settings.md)).
+A `.env` in the checkout is not read.
+
+Every script in `scripts/` starts with PEP 723 inline metadata (a `# /// script` block
+with `requires-python` and `dependencies`), so `uv run --script scripts/<name>.py` runs it
+with what it needs and nothing else; `tests/test_scripts.py` checks the block is there.
 
 ## Common tasks
 
 Run `uv run poe` to list every task.
 
-`.env.example` and `docs/settings.md` are generated from the `Settings` class in
-`src/aft_mcp/settings.py` by `scripts/settings_reference.py`, using each field's
+Settings are grouped as in menagerist: one class per group in `src/aft_mcp/settings.py`
+(`ConnectionSettings`, `AuthSettings`, `ToolSettings`, `LogSettings`, listed in `GROUPS`),
+on a base class that holds the `AFT_MCP_` prefix (`group="log"` gives `AFT_MCP_LOG_`) and
+records where each value came from (`_tracking.py`, ported from menagerist). A standard
+variable such as `SSH_CONNECTION` is read through `validation_alias` on the same base class.
+`.env.example` and `docs/settings.md` are generated from the groups by
+`scripts/settings_reference.py`, one section per group, using each field's
 description and example. After adding or changing a setting, run
 `uv run poe settings-docs`. CI and a pre-commit hook (`uv run poe settings-docs-check`)
 fail while either file is out of date.
@@ -141,6 +151,64 @@ no version number to edit by hand.
   installed package metadata.
 - Publish a release from the tag with GitHub's "Generate release notes", which groups
   pull requests by label (see below).
+
+To release, run the **Release** workflow (`release.yml`, ported from menagerist) from
+`main` (Actions, Release, Run workflow):
+
+- **channel** `final` plans the next tag with calver-scm (`next-tag`); `a`, `b` or `rc`
+  plan a pre-release (`v2026.11.0rc1`); `promote` gives the latest pre-release its final
+  tag; `post` makes a post-release of the latest release. Or type a **tag** instead.
+- It checks the CalVer setup, checks the tag against the repository (no reuse, no
+  skipped patch, nothing lower than an existing release), checks no release or draft has
+  it yet, and creates the release with GitHub's generated notes since the last final
+  release. An optional **name** makes the title `<tag> - <name>`.
+- **draft** (on by default) creates a draft: review it on the Releases page and publish
+  it, which starts `publish.yml`. A release created already published needs a
+  `RELEASE_TOKEN` secret, because a release published with the workflow's own token
+  doesn't start other workflows. **dry run** plans and checks, previews the title,
+  notes and image tags, and creates nothing.
+
+By hand: on `main`, `git fetch --tags`, then `uv run poe release-tag` prints the next tag
+(it creates nothing); `git tag "$(uv run poe release-tag)"`, push the tag, and publish a
+GitHub release for it. `uv run poe version`, `version-explain` and `version-doctor` show
+the version the checkout builds, how it was worked out, and check the CalVer setup.
+
+Publishing a GitHub release runs one workflow, `publish.yml` (ported from menagerist's,
+plus PyPI). Any failed check publishes nothing.
+
+- **Checks:** the version job validates the tag with calver-scm, checks it is on `main`,
+  and that the version built from it is the tag. `build.yml` smoke tests the image and
+  compares its installed package metadata (name, version, summary, licence,
+  `Requires-Python`, `Requires-Dist`) with a wheel built from the same commit
+  (`scripts/compare_package_metadata.py`); CI runs this on every pull request too.
+- **PyPI:** the `dist` job builds and tests the wheel and sdist (`poe build-check`) and
+  checks they carry the release's version; the `pypi` job uploads them with
+  `pypa/gh-action-pypi-publish` through trusted publishing (OIDC, no stored token). Each
+  file gets two attestations: a PEP 740 one that pypi.org shows as its provenance, and a
+  GitHub one (`gh attestation verify <file> --owner samcorky`).
+- **Image:** built with `docker buildx bake` (`docker-bake.hcl`) on a native runner for
+  `linux/amd64` and `linux/arm64`, and pushed as one multi-platform image to
+  `ghcr.io/samcorky/aft-mcp` with an attestation. A release gets its version
+  (`2026.11.0`), and the month (`2026.11`), year (`2026`) and `latest` tags, each moved
+  only when no newer release covers it (`.github/actions/image-tags`,
+  `scripts/image_tags.py`). A push to `main` publishes `edge` and `sha-<commit>`. Run it
+  by hand to build only, tick `push` to push, or give a `tag` to preview the tags a
+  release would publish. PyPI is only ever published for a release.
+
+The image (`Dockerfile`) is built like menagerist's: uv installs the Python from
+`.python-version` and the dependencies with `uv sync --locked` (exactly what `uv.lock`
+records, every hash checked), and only that Python and the virtualenv go onto a
+distroless runtime, with no shell, package manager or pip. Base images are pinned by
+digest, and it runs as user `1000:1000` with no `.env` of its own. `.python-version` is
+also the Python CI and local development use. CI builds and smoke tests it on every
+pull request (`build.yml`); `uv run poe docker-build` builds `aft-mcp:local` the same way.
+
+One-off setup before the first release, done by a maintainer:
+
+- On pypi.org, add a pending trusted publisher for the project `aft-mcp`: owner
+  `samcorky`, repository `aft-mcp`, workflow `publish.yml`, environment `pypi`.
+- In this repository's settings, create the `pypi` environment (optionally limited to tags
+  matching `v*`, with a required reviewer).
 
 ## Labels
 

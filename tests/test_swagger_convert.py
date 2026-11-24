@@ -321,6 +321,71 @@ def test_responses_get_content_examples_and_headers() -> None:
     assert result["components"]["responses"] == {"NotFound": {"description": "missing"}}
 
 
+CARD_RESPONSE: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "card": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "end_date": {"type": "string"},
+                "done": {"type": "boolean", "x-nullable": False},  # kept as given
+                "column": {"$ref": "#/definitions/Column"},  # refs untouched
+                "owner": {
+                    "allOf": [
+                        {"type": "object", "properties": {"id": {"type": "integer"}}}
+                    ]
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}},
+                    },
+                },
+            },
+        }
+    },
+}
+
+
+def test_response_properties_may_be_null_at_any_depth() -> None:
+    spec = swagger(
+        {
+            "/cards/{id}": {
+                "get": {
+                    "responses": {"200": {"description": "OK", "schema": CARD_RESPONSE}}
+                }
+            }
+        }
+    )
+    result = convert(spec)
+    response = result["paths"]["/cards/{id}"]["get"]["responses"]["200"]
+    schema = response["content"]["application/json"]["schema"]
+    assert "nullable" not in schema  # the response itself is still an object
+    card = schema["properties"]["card"]
+    assert card["nullable"] is True
+    props = card["properties"]
+    assert props["title"] == {"type": "string", "nullable": True}
+    assert props["end_date"] == {"type": "string", "nullable": True}
+    assert props["done"] == {"type": "boolean", "nullable": False}
+    assert props["column"] == {"$ref": "#/components/schemas/Column"}
+    owner_id = props["owner"]["allOf"][0]["properties"]["id"]
+    assert owner_id == {"type": "integer", "nullable": True}
+    tag = props["tags"]["items"]["properties"]["name"]
+    assert tag == {"type": "string", "nullable": True}
+
+
+def test_request_bodies_stay_strict() -> None:
+    body = {"in": "body", "name": "body", "schema": CARD_RESPONSE["properties"]["card"]}
+    spec = swagger({"/cards": {"post": {"parameters": [body], **ok()}}})
+    result = convert(spec)
+    request = result["paths"]["/cards"]["post"]["requestBody"]
+    title = request["content"]["application/json"]["schema"]["properties"]["title"]
+    assert title == {"type": "string"}
+    assert "x-nullable" not in CARD_RESPONSE["properties"]["card"]  # not mutated
+
+
 @pytest.mark.parametrize(
     ("scheme", "expected"),
     [

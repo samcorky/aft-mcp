@@ -1,4 +1,12 @@
-"""Generate ``.env.example`` and ``docs/settings.md`` from the ``Settings`` class.
+# /// script
+# requires-python = ">=3.14"
+# dependencies = ["aft-mcp"]
+#
+# # It reads aft-mcp's settings classes, so it runs against this checkout.
+# [tool.uv.sources]
+# aft-mcp = { path = "..", editable = true }
+# ///
+"""Generate ``.env.example`` and ``docs/settings.md`` from the settings groups.
 
 Both files are written from each field's JSON Schema, description and example, so
 they can't drift from the code. ``uv run poe settings-docs`` rewrites them, and
@@ -14,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from aft_mcp.settings import ENV_PREFIX, Settings
+from aft_mcp.settings import ENVIRONMENT_ONLY, GROUPS, AftMcpSettings
 
 ENV_EXAMPLE_PATH = ".env.example"
 SETTINGS_DOC_PATH = "docs/settings.md"
@@ -31,7 +39,13 @@ _JSON_TYPES = {
 }
 _INTRO = (
     "Every setting is an environment variable. The server reads the process "
-    + "environment first, then `.env` in the working directory. A variable "
+    + "environment first, then a `.env` file: the one named by `AFT_MCP_ENV_FILE` "
+    + "(set in the environment), or else `aft-mcp/.env` in your config directory: "
+    + "`$XDG_CONFIG_HOME` or `~/.config` on Linux and macOS, `%APPDATA%` on "
+    + "Windows. The working directory is never read. Last come secret files: in "
+    + "the directory named by `AFT_MCP_SECRETS_DIR` (or systemd's "
+    + "`CREDENTIALS_DIRECTORY`), a file named after a variable, such as "
+    + "`AFT_MCP_TOKEN`, holds its value. A variable "
     + "already in the environment wins, and an empty value counts as "
     + f"unset. [`{ENV_EXAMPLE_PATH}`](../{ENV_EXAMPLE_PATH}) is a starting point "
     + "to copy. A missing or invalid setting stops the server, and the error lists "
@@ -59,8 +73,25 @@ class SettingEntry:
     sensitive: bool
 
 
-def _env_name(name: str) -> str:
-    return f"{ENV_PREFIX}{name.upper()}"
+@dataclass(frozen=True, kw_only=True)
+class SettingsSection:
+    """One group of settings, as a heading and its variables."""
+
+    title: str
+    entries: list[SettingEntry]
+
+
+def _resolve(node: Any, defs: JsonObject) -> Any:  # noqa: ANN401 - walks JSON Schema
+    """Inline ``$ref``s to ``$defs``, as named types (``type CSV[T] = ...``) make."""
+    if isinstance(node, dict):
+        ref = node.get("$ref", "")
+        if ref.startswith("#/$defs/"):
+            target = defs[ref.removeprefix("#/$defs/")]
+            node = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
+        return {key: _resolve(value, defs) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_resolve(value, defs) for value in node]
+    return node
 
 
 def _without_null(schema: JsonObject) -> JsonObject:
@@ -103,18 +134,20 @@ def _text(value: object) -> str:
     return str(value)
 
 
-def build_entries() -> list[SettingEntry]:
-    """Describe every field of ``Settings``, in the order they are declared.
+def build_entries(group: type[AftMcpSettings]) -> list[SettingEntry]:
+    """Describe every field of one group, in the order they are declared.
 
     Raises:
         ValueError: A field has no description, so it can't be documented.
     """
-    schema = Settings.model_json_schema()
+    schema = group.model_json_schema()
+    schema = _resolve(schema, schema.get("$defs", {}))
     required = set(schema.get("required", []))
+    prefix = group.model_config.get("env_prefix", "")
     entries = []
     for name, field in schema["properties"].items():
         if not field.get("description"):
-            msg = f"Settings.{name} needs a description for {SETTINGS_DOC_PATH}"
+            msg = f"{group.__name__}.{name} needs a description for {SETTINGS_DOC_PATH}"
             raise ValueError(msg)
         type_label, allowed = _describe(field)
         sensitive = _without_null(field).get("format") == "password"
@@ -122,7 +155,7 @@ def build_entries() -> list[SettingEntry]:
         default = field.get("default")
         entries.append(
             SettingEntry(
-                env_name=_env_name(name),
+                env_name=_variable(group, name, prefix),
                 required="yes" if name in required else "no",
                 type_label=type_label,
                 allowed=allowed,
@@ -136,6 +169,41 @@ def build_entries() -> list[SettingEntry]:
     return entries
 
 
+def _variable(group: type[AftMcpSettings], name: str, prefix: str) -> str:
+    """The variable for a schema property: a field's name, or a field's alias.
+
+    The JSON Schema keys an aliased field (``SSH_CONNECTION``) by its alias, which is
+    already the variable's name.
+    """
+    if name in group.model_fields:
+        return group.env_name(name)
+    aliases = {field.validation_alias for field in group.model_fields.values()}
+    return name if name in aliases else f"{prefix}{name.upper()}"
+
+
+def build_sections() -> list[SettingsSection]:
+    """One section per settings group, in ``GROUPS`` order."""
+    return [
+        SettingsSection(title=group.title, entries=build_entries(group))
+        for group in GROUPS.values()
+    ]
+
+
+def build_environment_only_sections() -> list[SettingsSection]:
+    """The settings read from the environment only (``ENVIRONMENT_ONLY``)."""
+    return [
+        SettingsSection(title=group.title, entries=build_entries(group))
+        for group in ENVIRONMENT_ONLY.values()
+    ]
+
+
+ENVIRONMENT_ONLY_INTRO = (
+    "These are read from the process environment only, never from `.env`: the "
+    + "first two say which `.env` and secret files to read, and the others are set "
+    + "by systemd or sshd. They are not in `.env.example`."
+)
+
+
 def _dotenv_value(value: str) -> str:
     return f'"{value}"' if _UNSAFE_IN_DOTENV.search(value) else value
 
@@ -144,7 +212,7 @@ def _comment(text: str) -> list[str]:
     return [f"# {line}" for line in textwrap.wrap(text, _WIDTH - 2)]
 
 
-def render_env_example(entries: list[SettingEntry]) -> str:
+def render_env_example(sections: list[SettingsSection]) -> str:
     """Render ``.env.example``: the needed settings set, the optional ones commented.
 
     A needed setting gets its example, or is left blank when it is a secret. An
@@ -152,21 +220,29 @@ def render_env_example(entries: list[SettingEntry]) -> str:
     """
     lines = [
         f"# aft-mcp settings. {_GENERATED}",
-        "# Copy to .env and fill in the settings that aren't commented out.",
+        "# Copy to ~/.config/aft-mcp/.env (or a file named by AFT_MCP_ENV_FILE)",
+        "# and fill in the settings that aren't commented out.",
         f"# Every variable is described in {SETTINGS_DOC_PATH}.",
     ]
-    for entry in entries:
-        lines += ["", *_comment(entry.description.replace("`", ""))]
-        if entry.allowed:
-            lines += _comment(f"Allowed: {entry.allowed.replace('`', '')}.")
-        if entry.required != "no":
-            lines += _comment(f"Required: {entry.required.replace('`', '')}.")
-        if entry.sensitive:
-            lines += _comment("Sensitive: no value is written here.")
-        value = entry.example if entry.example is not None else entry.default
-        prefix = "" if entry.starter else "# "
-        lines.append(f"{prefix}{entry.env_name}={_dotenv_value(value or '')}")
+    for section in sections:
+        lines += ["", f"# --- {section.title} ---"]
+        for entry in section.entries:
+            lines += _env_example_entry(entry)
     return "\n".join(lines) + "\n"
+
+
+def _env_example_entry(entry: SettingEntry) -> list[str]:
+    lines = ["", *_comment(entry.description.replace("`", ""))]
+    if entry.allowed:
+        lines += _comment(f"Allowed: {entry.allowed.replace('`', '')}.")
+    if entry.required != "no":
+        lines += _comment(f"Required: {entry.required.replace('`', '')}.")
+    if entry.sensitive:
+        lines += _comment("Sensitive: no value is written here.")
+    value = entry.example if entry.example is not None else entry.default
+    prefix = "" if entry.starter else "# "
+    lines.append(f"{prefix}{entry.env_name}={_dotenv_value(value or '')}")
+    return lines
 
 
 def _cell(text: str) -> str:
@@ -186,15 +262,33 @@ def _notes(entry: SettingEntry) -> str:
     return " ".join(notes)
 
 
-def render_settings_doc(entries: list[SettingEntry]) -> str:
-    """Render the settings reference as one table."""
+def render_settings_doc(
+    sections: list[SettingsSection],
+    environment_only: list[SettingsSection] | None = None,
+) -> str:
+    """Render the settings reference: one heading and table per group.
+
+    The environment-only settings follow under their own heading, as a group's
+    subsections.
+    """
     lines = [
         "# Settings reference",
         "",
         f"<!-- {_GENERATED} -->",
         "",
         _INTRO,
-        "",
+    ]
+    for section in sections:
+        lines += ["", f"## {section.title}", "", *_table(section.entries)]
+    if environment_only:
+        lines += ["", "## Read from the environment only", "", ENVIRONMENT_ONLY_INTRO]
+        for section in environment_only:
+            lines += ["", f"### {section.title}", "", *_table(section.entries)]
+    return "\n".join(lines) + "\n"
+
+
+def _table(entries: list[SettingEntry]) -> list[str]:
+    lines = [
         "| Variable | Required | Type | Default | Allowed values | Description |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
@@ -213,15 +307,17 @@ def render_settings_doc(entries: list[SettingEntry]) -> str:
         + " |"
         for entry in entries
     ]
-    return "\n".join(lines) + "\n"
+    return lines
 
 
 def reference_files() -> dict[str, str]:
     """The generated files, as repository-relative paths and their contents."""
-    entries = build_entries()
+    sections = build_sections()
     return {
-        ENV_EXAMPLE_PATH: render_env_example(entries),
-        SETTINGS_DOC_PATH: render_settings_doc(entries),
+        ENV_EXAMPLE_PATH: render_env_example(sections),
+        SETTINGS_DOC_PATH: render_settings_doc(
+            sections, build_environment_only_sections()
+        ),
     }
 
 

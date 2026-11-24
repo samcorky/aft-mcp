@@ -26,8 +26,11 @@ read your boards and make safe, reversible changes to them.
   `src/aft_mcp/server.py`).
 - **Writes:** only reversible changes to things *inside* a board (`ALLOWED_WRITES` in `src/aft_mcp/server.py`): edit or
   move a card, set done status and assignees, archive/unarchive cards, add comments and checklist items, update
-  checklist items, add cards and columns, and rename or reorder columns.
-- **Never exposed:** `DELETE` routes, creating boards, and board-level changes (rename, owner, public link, import).
+  checklist items, add cards and columns, rename or reorder columns, and promote cards to a global board and move them
+  between its states. Adding a card or column, and promoting a card, can't be undone through the server (deleting and
+  demoting are `DELETE`s), so remove a mistake in the AFT UI.
+- **Never exposed:** `DELETE` routes (including demoting a card from a global board), creating boards, and board-level
+  or global-board settings (rename, owner, visibility, public link, import).
 
 Read-only mode, a board allowlist and an audit log narrow this further: see [Access and auditing](docs/access.md).
 
@@ -38,7 +41,7 @@ You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.14 itself if need
 1. **Make an AFT user for the agent.** In AFT's User Management, create a user (for example `claude`), make it
    **API only**, give it access to the boards the agent should work on, and choose **Create API Token**.
 
-2. **Put the settings in a directory of their own**, readable only by you, for example `~/.config/aft-mcp/.env`
+2. **Put the settings in `~/.config/aft-mcp/.env`** (`%APPDATA%\aft-mcp\.env` on Windows), readable only by you
    (`mkdir -p ~/.config/aft-mcp && chmod 700 ~/.config/aft-mcp`). Two settings are enough:
 
    ```dotenv
@@ -49,7 +52,7 @@ You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.14 itself if need
 3. **Add it to Claude Code**, pinning `<ref>` to a release tag or commit:
 
    ```bash
-   claude mcp add aft -- uvx --directory ~/.config/aft-mcp --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
+   claude mcp add aft -- uvx --from git+https://github.com/samcorky/aft-mcp@<ref> aft-mcp
    ```
 
    Then ask Claude "What is on my AFT boards?", or check the connection with `/mcp`.
@@ -61,6 +64,9 @@ You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.14 itself if need
 - [Connecting clients](docs/clients.md): Claude Code, Claude Desktop, the Agent SDK and other MCP clients, running
   from a checkout, and tool permissions.
 - [Access and auditing](docs/access.md): the dedicated AFT user, read-only mode, the board allowlist and the audit log.
+- [Running with Docker](docs/docker.md): the image on GHCR, its settings and tags, and building it yourself.
+- [Running on a server](docs/remote.md): one aft-mcp on a server, reached from each workstation over SSH, so the
+  credential never sits on a workstation.
 
 ## How it works
 

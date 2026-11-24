@@ -10,6 +10,7 @@ resolution-markers = [
 name = "aft-mcp"
 source = { editable = "." }
 dependencies = [
+    { name = "cyclopts" },
     { name = "fastmcp" },
     { name = "httpx2" },
     { name = "pydantic-settings" },
@@ -26,9 +27,13 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+release = [
+    { name = "calver-scm", extra = ["cli"] },
+]
 
 [package.metadata]
 requires-dist = [
+    { name = "cyclopts", specifier = ">=5.3.2" },
     { name = "fastmcp", specifier = ">=4.1.4" },
     { name = "httpx2", specifier = ">=0.28.1" },
     { name = "pydantic-settings", specifier = ">=2.16.2" },
@@ -45,6 +50,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.17.6" },
 ]
+release = [{ name = "calver-scm", extras = ["cli"], specifier = ">=1.13.1" }]
 
 [[package]]
 name = "aiofile"

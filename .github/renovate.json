@@ -16,7 +16,10 @@
   "enabledManagers": [
     "pep621",
     "github-actions",
-    "pre-commit"
+    "pre-commit",
+    "dockerfile",
+    "pyenv",
+    "custom.regex"
   ],
   "prHourlyLimit": 5,
   "prConcurrentLimit": 5,
@@ -65,6 +68,80 @@
       "groupName": "pre-commit hooks",
       "semanticCommitType": "ci",
       "semanticCommitScope": "deps"
+    },
+    {
+      "description": "Docker images (Dockerfile: debian, distroless, uv): digest and patch bumps grouped and automerged once the image build and smoke test pass. Images are pinned by tag and digest.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "groupName": "Docker images",
+      "semanticCommitType": "build",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "description": "uv in the Dockerfile: any update, grouped with the other images and automerged once CI's image build and smoke test pass.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/astral-sh/uv"
+      ],
+      "groupName": "Docker images",
+      "semanticCommitType": "build",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "description": "hatchling, hatch-vcs and calver-scm sit in build-system.requires and in the release group; move them together (as in menagerist).",
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchPackageNames": [
+        "hatchling",
+        "hatch-vcs",
+        "calver-scm"
+      ],
+      "groupName": "Python build system",
+      "semanticCommitType": "build",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "description": "The Python version (.python-version and the requires-python floor) in one pull request, reviewed by hand: CI, the image and local development all move with it (as in menagerist)",
+      "matchManagers": [
+        "pyenv",
+        "custom.regex"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "groupName": "Python interpreter",
+      "automerge": false,
+      "semanticCommitType": "build",
+      "semanticCommitScope": "deps",
+      "labels": [
+        "dependencies",
+        "python-version"
+      ]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The Python floor in requires-python, so it moves with .python-version in one pull request (as in menagerist)",
+      "managerFilePatterns": [
+        "/^pyproject\\.toml$/"
+      ],
+      "matchStrings": [
+        "requires-python = \">=(?<currentValue>3\\.\\d+)\""
+      ],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
     }
   ]
 }

@@ -318,7 +318,8 @@ def _response(resp: JSON, produces: list[str]) -> JSON:
     out: JSON = {"description": resp.get("description", "")}
     examples = resp.get("examples", {})
     if "schema" in resp:
-        out["content"] = {mt: {"schema": resp["schema"]} for mt in produces}
+        schema = _nullable_properties(copy.deepcopy(resp["schema"]))
+        out["content"] = {mt: {"schema": schema} for mt in produces}
     if examples:
         content = out.setdefault("content", {})
         for mt, example in examples.items():
@@ -329,6 +330,28 @@ def _response(resp: JSON, produces: list[str]) -> JSON:
             for name, h in resp["headers"].items()
         }
     return out
+
+
+def _nullable_properties(node: Any) -> Any:  # noqa: ANN401 - walks arbitrary JSON
+    """Let every property of a response schema be null, at any depth.
+
+    Swagger 2.0 has no ``nullable``, and AFT's spec doesn't mark the fields it
+    returns as null (a card without dates, a user without SSO). MCP clients check
+    results against the output schema, so one such null fails the whole tool call,
+    even after a write has gone through. Marking them ``x-nullable`` (which
+    ``_normalise`` turns into ``nullable``) accepts the null and keeps the types.
+    A ``$ref`` is left alone: OpenAPI 3.0 ignores siblings of ``$ref``.
+    """
+    if isinstance(node, dict):
+        for prop in node.get("properties", {}).values():
+            if isinstance(prop, dict) and "$ref" not in prop:
+                prop.setdefault("x-nullable", True)
+        for value in node.values():
+            _nullable_properties(value)
+    elif isinstance(node, list):
+        for value in node:
+            _nullable_properties(value)
+    return node
 
 
 def _rewrite_refs(node: Any) -> Any:  # noqa: ANN401 - walks arbitrary JSON

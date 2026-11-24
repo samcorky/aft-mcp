@@ -1,0 +1,94 @@
+name: Build
+
+# Builds the image and smoke tests it. Nothing is pushed.
+# ci.yml calls it on pull requests and pushes to main, publish.yml calls it before it
+# publishes, and it can be run by hand.
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build image and smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The version is worked out from the tags.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+          # Only the small release group is installed here; keep it out of the
+          # other jobs' cache.
+          cache-suffix: release
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Fails on a broken CalVer config; warns about a shallow clone or no tag yet.
+      - name: Check the CalVer setup
+        run: uv run --locked --only-group release calver-scm doctor
+
+      - name: Work out the build arguments
+        id: args
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          version="$(uv run --locked --only-group release calver-scm --format plain version)"
+          timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          {
+            echo "version=${version}"
+            echo "commit=${COMMIT_SHA}"
+            echo "timestamp=${timestamp}"
+          } | tee -a "$GITHUB_OUTPUT"
+          echo "No tags: this image is built as aft-mcp:local and not pushed."
+
+      - name: Build the image
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+        env:
+          VERSION: ${{ steps.args.outputs.version }}
+          COMMIT_SHA: ${{ steps.args.outputs.commit }}
+          BUILD_TIMESTAMP: ${{ steps.args.outputs.timestamp }}
+        with:
+          # Build the checkout; .dockerignore keeps the context to what the image needs.
+          source: .
+          files: docker-bake.hcl
+          targets: local
+          # Same scope as the linux/amd64 build in publish.yml, which runs after this one
+          # in a publish run and so reuses these layers.
+          set: |
+            local.cache-from=type=gha,scope=image-linux-amd64
+            local.cache-to=type=gha,mode=max,scope=image-linux-amd64
+
+      # The image runs, reports the version it was built as, is set to a non-root user,
+      # and stops with the list of missing settings when given none.
+      - name: Smoke test the image
+        env:
+          VERSION: ${{ steps.args.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(docker run --rm aft-mcp:local version)" = "$VERSION"
+          # Distroless has no shell or id, so check the user the image is set to run as.
+          test "$(docker image inspect aft-mcp:local --format '{{.Config.User}}')" = "1000:1000"
+          if out="$(docker run --rm -i aft-mcp:local </dev/null 2>&1)"; then
+            echo "::error::The image started with no settings"; exit 1
+          fi
+          grep -q "AFT_MCP_BASE_URL: Field required" <<< "$out"
+          docker image inspect aft-mcp:local --format '{{.Size}}' \
+            | awk '{printf "Image size: %.1f MB\n", $1/1e6}' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The wheel for PyPI is built by hatch-vcs from the tags; the image got its
+      # version as a build argument. Fail if the two would describe different releases.
+      - name: Build the wheel from the same commit
+        run: uv build --wheel --out-dir "${RUNNER_TEMP}/dist"
+
+      - name: Check the image and the wheel carry the same metadata
+        run: uv run --script scripts/compare_package_metadata.py "${RUNNER_TEMP}"/dist/*.whl aft-mcp:local

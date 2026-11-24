@@ -1,0 +1,39 @@
+# Ported from menagerist's image-tags action.
+name: Image tags
+description: >-
+  Work out the version tags of the Docker image for a release tag: the full version, the
+  month and year tags, and latest, each moved only when no newer release covers it. One
+  place for the rules, used to publish the tags and to preview them. The caller needs
+  the repository checked out with its full history and tags, and uv installed.
+
+inputs:
+  tag:
+    description: The release tag, for example v2026.11.0 or v2026.11.0.post1.
+    required: true
+
+outputs:
+  tags:
+    description: The partial tags as type=raw lines for docker/metadata-action.
+    value: ${{ steps.tags.outputs.tags }}
+  preview:
+    description: Every version tag the release publishes, comma separated, for display.
+    value: ${{ steps.tags.outputs.preview }}
+  held:
+    description: Tags the release must not move because a newer release covers them.
+    value: ${{ steps.tags.outputs.held }}
+
+runs:
+  using: composite
+  steps:
+    # calver-scm reads the tag against the project's scheme and the repository's tags, so
+    # a tag it rejects, or a shallow clone, fails the step (pipefail) rather than moving
+    # latest without knowing what is newer. image_tags.py maps the scopes to image tags.
+    - name: Work out the tags
+      id: tags
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -o pipefail
+        uv run --locked --only-group release calver-scm --json parse "$TAG" --tag --against-repo \
+          | uv run --script scripts/image_tags.py
