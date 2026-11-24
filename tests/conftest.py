@@ -183,4 +183,5 @@ def log_records() -> Iterator[LogRecords]:
     structlog.contextvars.clear_contextvars()
     for handler in [h for h in root.handlers if h.get_name() == HANDLER_NAME]:
         root.removeHandler(handler)
+        handler.close()  # a syslog handler holds a socket
     root.level, fastmcp.handlers[:], fastmcp.propagate, ours.level = saved

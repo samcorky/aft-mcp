@@ -11,15 +11,23 @@
     ":label(dependencies)",
     ":maintainLockFilesWeekly",
     ":rebaseStalePrs",
-    "helpers:pinGitHubActionDigests"
+    "helpers:pinGitHubActionDigests",
+    "security:minimumReleaseAgePypi"
   ],
+  "internalChecksFilter": "strict",
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": null
+  },
+  "dependencyDashboard": {
+    "header": "This issue lists Renovate updates and detected dependencies; the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs explain the layout.\n\n**How we use Renovate**\n\n- Updates are raised before 9am (London) on Mondays. Security fixes are raised at any time, labelled `security`, and skip the release-age wait.\n- A new PyPI release is only proposed once it has been out for a while, so a bad release that gets pulled soon after publishing never reaches a pull request.\n- Minor, patch and digest updates automerge once every required check passes. Python dependencies, GitHub Actions, pre-commit hooks and the Docker images are each grouped into one pull request.\n- Major updates, the Python version and lock file maintenance need a manual review. The `requires-python` floor is never moved by Renovate.\n- Each rule in `.github/renovate.json` has a `description` that says why it exists.",
+    "footer": "See \"Dependencies\" in [CONTRIBUTING.md](https://github.com/samcorky/aft-mcp/blob/main/CONTRIBUTING.md) for how these rules are kept."
+  },
   "enabledManagers": [
     "pep621",
     "github-actions",
     "pre-commit",
     "dockerfile",
-    "pyenv",
-    "custom.regex"
+    "pyenv"
   ],
   "prHourlyLimit": 5,
   "prConcurrentLimit": 5,
@@ -28,6 +36,35 @@
   ],
   "timezone": "Europe/London",
   "packageRules": [
+    {
+      "description": "Dashboard headings, one per area of the repository (as in menagerist). They only change how the Dependency Dashboard is laid out.",
+      "matchManagers": [
+        "pep621"
+      ],
+      "dependencyDashboardCategory": "Python dependencies"
+    },
+    {
+      "description": "Dashboard heading for CI and tooling.",
+      "matchManagers": [
+        "github-actions",
+        "pre-commit"
+      ],
+      "dependencyDashboardCategory": "CI and tooling"
+    },
+    {
+      "description": "Dashboard heading for the Docker images.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "dependencyDashboardCategory": "Docker images"
+    },
+    {
+      "description": "Dashboard heading for the Python version.",
+      "matchManagers": [
+        "pyenv"
+      ],
+      "dependencyDashboardCategory": "Python version"
+    },
     {
       "description": "Python dependencies: one PR for every non-major update.",
       "matchManagers": [
@@ -111,10 +148,9 @@
       "semanticCommitScope": "deps"
     },
     {
-      "description": "The Python version (.python-version and the requires-python floor) in one pull request, reviewed by hand: CI, the image and local development all move with it (as in menagerist)",
+      "description": "The Python version (.python-version), which CI, the image and local development use, in one pull request reviewed by hand. The requires-python floor stays where it is, as in calver-scm, and CI keeps testing it.",
       "matchManagers": [
-        "pyenv",
-        "custom.regex"
+        "pyenv"
       ],
       "matchPackageNames": [
         "python"
@@ -127,21 +163,6 @@
         "dependencies",
         "python-version"
       ]
-    }
-  ],
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "The Python floor in requires-python, so it moves with .python-version in one pull request (as in menagerist)",
-      "managerFilePatterns": [
-        "/^pyproject\\.toml$/"
-      ],
-      "matchStrings": [
-        "requires-python = \">=(?<currentValue>3\\.\\d+)\""
-      ],
-      "depNameTemplate": "python",
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
     }
   ]
 }
