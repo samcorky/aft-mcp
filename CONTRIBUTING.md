@@ -164,9 +164,12 @@ Publishing a GitHub release runs two workflows:
   by hand to build only, tick `push` to push, or give a `tag` to preview the tags a
   release would publish.
 
-The image (`Dockerfile`) installs the dependencies with `uv sync --locked`, so exactly
-what `uv.lock` records with every hash checked, from base images pinned by digest, and
-runs as a non-root user with no `.env` of its own. CI builds and smoke tests it on every
+The image (`Dockerfile`) is built like menagerist's: uv installs the Python from
+`.python-version` and the dependencies with `uv sync --locked` (exactly what `uv.lock`
+records, every hash checked), and only that Python and the virtualenv go onto a
+distroless runtime, with no shell, package manager or pip. Base images are pinned by
+digest, and it runs as user `1000:1000` with no `.env` of its own. `.python-version` is
+also the Python CI and local development use. CI builds and smoke tests it on every
 pull request (`build.yml`); `uv run poe docker-build` builds `aft-mcp:local` the same way.
 
 One-off setup before the first release, done by a maintainer:

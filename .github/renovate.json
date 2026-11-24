@@ -17,7 +17,9 @@
     "pep621",
     "github-actions",
     "pre-commit",
-    "dockerfile"
+    "dockerfile",
+    "pyenv",
+    "custom.regex"
   ],
   "prHourlyLimit": 5,
   "prConcurrentLimit": 5,
@@ -68,7 +70,7 @@
       "semanticCommitScope": "deps"
     },
     {
-      "description": "Docker base images (Dockerfile): digest and patch bumps grouped and automerged, as build changes. Images are pinned by tag and digest.",
+      "description": "Docker images (Dockerfile: debian, distroless, uv): digest and patch bumps grouped and automerged once the image build and smoke test pass. Images are pinned by tag and digest.",
       "matchManagers": [
         "dockerfile"
       ],
@@ -81,27 +83,6 @@
       "groupName": "Docker images",
       "semanticCommitType": "build",
       "semanticCommitScope": "deps"
-    },
-    {
-      "description": "A new Python (3.14 to 3.15) in the Dockerfile is a manual change: requires-python and CI's Python move with it.",
-      "matchManagers": [
-        "dockerfile"
-      ],
-      "matchPackageNames": [
-        "python"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "major"
-      ],
-      "groupName": "Python interpreter",
-      "automerge": false,
-      "semanticCommitType": "build",
-      "semanticCommitScope": "deps",
-      "labels": [
-        "dependencies",
-        "python-version"
-      ]
     },
     {
       "description": "uv in the Dockerfile: any update, grouped with the other images and automerged once CI's image build and smoke test pass.",
@@ -128,6 +109,39 @@
       "groupName": "Python build system",
       "semanticCommitType": "build",
       "semanticCommitScope": "deps"
+    },
+    {
+      "description": "The Python version (.python-version and the requires-python floor) in one pull request, reviewed by hand: CI, the image and local development all move with it (as in menagerist)",
+      "matchManagers": [
+        "pyenv",
+        "custom.regex"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "groupName": "Python interpreter",
+      "automerge": false,
+      "semanticCommitType": "build",
+      "semanticCommitScope": "deps",
+      "labels": [
+        "dependencies",
+        "python-version"
+      ]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The Python floor in requires-python, so it moves with .python-version in one pull request (as in menagerist)",
+      "managerFilePatterns": [
+        "/^pyproject\\.toml$/"
+      ],
+      "matchStrings": [
+        "requires-python = \">=(?<currentValue>3\\.\\d+)\""
+      ],
+      "depNameTemplate": "python",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
     }
   ]
 }

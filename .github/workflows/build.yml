@@ -68,7 +68,7 @@ jobs:
             local.cache-from=type=gha,scope=image-linux-amd64
             local.cache-to=type=gha,mode=max,scope=image-linux-amd64
 
-      # The image runs, reports the version it was built as, runs as a non-root user,
+      # The image runs, reports the version it was built as, is set to a non-root user,
       # and stops with the list of missing settings when given none.
       - name: Smoke test the image
         env:
@@ -76,7 +76,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(docker run --rm aft-mcp:local version)" = "$VERSION"
-          test "$(docker run --rm --entrypoint id aft-mcp:local -u)" = "1000"
+          # Distroless has no shell or id, so check the user the image is set to run as.
+          test "$(docker image inspect aft-mcp:local --format '{{.Config.User}}')" = "1000:1000"
           if out="$(docker run --rm -i aft-mcp:local </dev/null 2>&1)"; then
             echo "::error::The image started with no settings"; exit 1
           fi

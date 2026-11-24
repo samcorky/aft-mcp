@@ -1,5 +1,6 @@
 # Only what the image is built from; everything else, .env included, stays out.
 *
+!.python-version
 !pyproject.toml
 !uv.lock
 !README.md
