@@ -50,10 +50,14 @@ jobs:
       - name: Type-check
         run: uv run poe types
 
+      - name: Check the shell scripts
+        run: shellcheck -s sh deploy/ssh-broker/aft-mcp-broker tests/broker/entrypoint.sh
+
   tests:
     name: "Tests: pytest"
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The full suite, including tests/test_broker.py, which builds a container.
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

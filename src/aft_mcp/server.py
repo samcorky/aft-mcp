@@ -257,8 +257,11 @@ def main() -> None:
         log.warning("insecure_url", setting=name, note="credentials sent unencrypted")
     try:
         mcp = create_server(settings)
-    except SettingsError as error:
-        sys.exit(str(error))
+    except Exception as error:
+        # Logged, not only raised: with the log kept off stderr (an SSH broker with
+        # AFT_MCP_LOG_STDERR=false), this is the only record of why it didn't start.
+        log.exception("startup_failed", error=type(error).__name__)
+        sys.exit(str(error) if isinstance(error, SettingsError) else 1)
     # No banner: FastMCP prints it to stderr, which over SSH goes back to the client,
     # and AFT_MCP_LOG_STDERR=false couldn't stop it, since it isn't a log line.
     mcp.run(show_banner=False)
