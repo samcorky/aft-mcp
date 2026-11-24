@@ -259,4 +259,6 @@ def main() -> None:
         mcp = create_server(settings)
     except SettingsError as error:
         sys.exit(str(error))
-    mcp.run()
+    # No banner: FastMCP prints it to stderr, which over SSH goes back to the client,
+    # and AFT_MCP_LOG_STDERR=false couldn't stop it, since it isn't a log line.
+    mcp.run(show_banner=False)

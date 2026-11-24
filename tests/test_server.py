@@ -331,13 +331,13 @@ def test_main_loads_the_settings_then_runs(
         def __init__(self, given: Settings) -> None:
             calls.append(given)
 
-        def run(self) -> None:
-            calls.append("run")
+        def run(self, *, show_banner: bool) -> None:
+            calls.append(f"run show_banner={show_banner}")
 
     monkeypatch.setattr(server, "load_settings", lambda *_: settings)
     monkeypatch.setattr(server, "create_server", FakeServer)
     server.main()
-    assert calls == [settings, "run"]
+    assert calls == [settings, "run show_banner=False"]
 
 
 def test_main_warns_about_each_http_url(
@@ -354,7 +354,9 @@ def test_main_warns_about_each_http_url(
     monkeypatch.setattr(server, "load_settings", lambda *_: insecure)
     monkeypatch.setattr(server, "configure_logging", lambda *_, **__: None)
     monkeypatch.setattr(
-        server, "create_server", lambda _s: type("S", (), {"run": lambda _self: None})()
+        server,
+        "create_server",
+        lambda _s: type("S", (), {"run": lambda _self, **_: None})(),
     )
     server.main()
     warnings = [r for r in log_records() if r["event"] == "insecure_url"]
@@ -445,7 +447,7 @@ def test_main_adds_the_instance_to_every_log_line(
     monkeypatch: pytest.MonkeyPatch, settings: Settings, log_records: LogRecords
 ) -> None:
     class LoggingServer:
-        def run(self) -> None:
+        def run(self, *, show_banner: bool) -> None:
             structlog.get_logger("aft_mcp.test").info("serving")
 
     labelled = changed(settings, {"instance": "test"})
@@ -462,7 +464,7 @@ def test_main_passes_the_log_settings_and_binds_the_ssh_client(
     calls: list[tuple[object, ...]] = []
 
     class LoggingServer:
-        def run(self) -> None:
+        def run(self, *, show_banner: bool) -> None:
             structlog.get_logger("aft_mcp.test").info("serving")
 
     to_syslog = changed(

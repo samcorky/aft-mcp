@@ -422,8 +422,13 @@ async def test_stdio_server_lists_tools_and_calls_aft(
     workdir = tmp_path / "cwd"
     workdir.mkdir()
     (workdir / ".env").write_text("AFT_MCP_READ_ONLY=true\n", encoding="utf-8")
+    stderr = tmp_path / "stderr.log"
     transport = StdioTransport(
-        command=sys.executable, args=["-m", "aft_mcp"], env=env, cwd=str(workdir)
+        command=sys.executable,
+        args=["-m", "aft_mcp"],
+        env=env,
+        cwd=str(workdir),
+        log_file=stderr,
     )
 
     async with Client(transport) as stdio_client:
@@ -432,6 +437,11 @@ async def test_stdio_server_lists_tools_and_calls_aft(
 
     assert "get_boards" in names
     assert "patch_cards_by_card_id" in names  # the planted .env was not read
+    # stderr has log lines only: no FastMCP banner, which would reach an SSH client.
+    err = stderr.read_text(encoding="utf-8")
+    assert "event=tool_result" in err
+    assert "FastMCP" not in err.replace("logger=fastmcp", "")
+    assert not any(line.startswith(("╭", "│")) for line in err.splitlines())
     assert not {n for n in names if n.startswith("delete_")}
     assert result.structured_content == {"result": BOARDS}
     auth = basic_auth(aft_env["AFT_MCP_USERNAME"], aft_env["AFT_MCP_PASSWORD"])
