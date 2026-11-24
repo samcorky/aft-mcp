@@ -66,6 +66,7 @@ format-check = { cmd = "ruff format --check .", help = "Check formatting (as CI 
 lint = { cmd = "ruff check --no-fix .", help = "Lint without changing files" }
 types = { cmd = "mypy", help = "Type-check with mypy" }
 test = { cmd = "pytest", help = "Run the test suite with coverage" }
+test-broker = { cmd = "pytest -m docker --no-cov -v tests/test_broker.py", help = "Run the SSH broker end-to-end test in Docker (docs/remote.md)" }
 version = { cmd = "calver-scm version", help = "Show the version the current checkout builds as" }
 version-explain = { cmd = "calver-scm explain", help = "Show how the current version was derived from the tags and commits" }
 version-doctor = { cmd = "calver-scm doctor", help = "Check the CalVer setup for problems (shallow clone, no compatible tag, bad config)" }
@@ -90,6 +91,7 @@ testpaths = ["tests"]
 pythonpath = ["scripts", "."]
 markers = [
     "e2e: launches the server as a subprocess over stdio (slower; skipped on pre-push)",
+    "docker: needs Docker and ssh, and skips itself without them; also e2e, so test-fast leaves it out",
 ]
 addopts = [
     "--tb=short",

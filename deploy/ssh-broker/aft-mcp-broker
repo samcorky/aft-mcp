@@ -1,0 +1,31 @@
+#!/bin/sh
+# Run by sshd for a broker key: aft-mcp-broker <workstation> <allowed instances>
+set -u
+workstation=$1
+allowed=$2
+instance=${SSH_ORIGINAL_COMMAND:-}
+
+# Only a plain name, and only one this key may reach.
+case $instance in
+  '' | *[!a-z0-9-]*) instance_ok=no ;;
+  *) case ",$allowed," in *",$instance,"*) instance_ok=yes ;; *) instance_ok=no ;; esac ;;
+esac
+if [ "$instance_ok" != yes ]; then
+  logger -p auth.warning -t aft-mcp-broker "$workstation refused instance '$instance'"
+  echo "aft-mcp-broker: instance not allowed" >&2
+  exit 1
+fi
+
+logger -p auth.info -t aft-mcp-broker "$workstation start $instance"
+# A clean environment: nothing from the SSH session reaches aft-mcp except
+# SSH_CONNECTION, which tags every log line with the client's address.
+env -i PATH=/usr/bin:/bin \
+  SSH_CONNECTION="${SSH_CONNECTION:-}" \
+  AFT_MCP_INSTANCE="$instance" \
+  AFT_MCP_LOG_SYSLOG=true \
+  AFT_MCP_LOG_SYSLOG_FACILITY=auth \
+  AFT_MCP_LOG_STDERR=false \
+  /opt/aft-mcp/.venv/bin/aft-mcp --env-file "/etc/aft-broker/$instance.env"
+status=$?
+logger -p auth.info -t aft-mcp-broker "$workstation end $instance ($status)"
+exit "$status"

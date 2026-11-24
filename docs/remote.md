@@ -83,41 +83,22 @@ loads the settings, fetches the spec and signs in with one harmless read.
 
 ### The broker script
 
-`/usr/local/bin/aft-mcp-broker`, owned by root:
+The broker script is [`deploy/ssh-broker/aft-mcp-broker`](../deploy/ssh-broker/aft-mcp-broker). Install it owned by
+root, from the same reviewed checkout:
 
-```sh
-#!/bin/sh
-# Run by sshd for a broker key: aft-mcp-broker <workstation> <allowed instances>
-set -u
-workstation=$1
-allowed=$2
-instance=${SSH_ORIGINAL_COMMAND:-}
-
-# Only a plain name, and only one this key may reach.
-case $instance in
-  '' | *[!a-z0-9-]*) instance_ok=no ;;
-  *) case ",$allowed," in *",$instance,"*) instance_ok=yes ;; *) instance_ok=no ;; esac ;;
-esac
-if [ "$instance_ok" != yes ]; then
-  logger -p auth.warning -t aft-mcp-broker "$workstation refused instance '$instance'"
-  echo "aft-mcp-broker: instance not allowed" >&2
-  exit 1
-fi
-
-logger -p auth.info -t aft-mcp-broker "$workstation start $instance"
-# A clean environment: nothing from the SSH session reaches aft-mcp except
-# SSH_CONNECTION, which tags every log line with the client's address.
-env -i PATH=/usr/bin:/bin \
-  SSH_CONNECTION="${SSH_CONNECTION:-}" \
-  AFT_MCP_INSTANCE="$instance" \
-  AFT_MCP_LOG_SYSLOG=true \
-  AFT_MCP_LOG_SYSLOG_FACILITY=auth \
-  AFT_MCP_LOG_STDERR=false \
-  /opt/aft-mcp/.venv/bin/aft-mcp --env-file "/etc/aft-broker/$instance.env"
-status=$?
-logger -p auth.info -t aft-mcp-broker "$workstation end $instance ($status)"
-exit "$status"
+```bash
+install -o root -g root -m 755 /opt/aft-mcp/deploy/ssh-broker/aft-mcp-broker /usr/local/bin/aft-mcp-broker
 ```
+
+sshd runs it for every login with a broker key, as `aft-mcp-broker <workstation> <allowed instances>`. It:
+
+1. Reads the instance the workstation asked for from `SSH_ORIGINAL_COMMAND`, and refuses anything that isn't a plain
+   name on the key's list (so a shell command, or an instance the key may not reach, never runs), logging the refusal
+   to syslog (`auth.warning`).
+2. Logs the session's start to syslog (`auth.info`), with the workstation's name.
+3. Starts aft-mcp with a clean environment: nothing from the SSH session reaches it except `SSH_CONNECTION`, which tags
+   every log line with the client's address.
+4. Logs the session's end and aft-mcp's exit status, and exits with it.
 
 The settings it passes:
 
