@@ -355,18 +355,29 @@ class PathSettings(AftMcpSettings):
     These can't be in ``.env``, because they say which ``.env`` to read.
     """
 
+    title = "Where the settings are read from"
+
     env_file: Path | None = Field(
         default=None,
-        description="The .env file to read instead of the default; it must exist.",
+        description=(
+            "The `.env` file to read instead of `aft-mcp/.env` in your config "
+            + "directory; it must exist."
+        ),
     )
     secrets_dir: Path | None = Field(
         default=None,
-        description="A directory of secret files, one per variable; it must exist.",
+        description=(
+            "A directory of secret files, each named after a variable (such as "
+            + f"`{_TOKEN}`) and holding its value; it must exist."
+        ),
     )
     credentials_directory: Path | None = Field(
         default=None,
         validation_alias="CREDENTIALS_DIRECTORY",
-        description="Set by systemd for LoadCredential=; used without secrets_dir.",
+        description=(
+            "Set by systemd for `LoadCredential=`; the secret files' directory when "
+            + f"`{ENV_PREFIX}SECRETS_DIR` isn't set."
+        ),
     )
 
     @field_validator("env_file")
@@ -412,10 +423,15 @@ class SessionSettings(AftMcpSettings, group="session"):
     ``AFT_MCP_SESSION_*``; it is not a setting an operator writes.
     """
 
+    title = "The session"
+
     ssh_connection: str | None = Field(
         default=None,
         validation_alias="SSH_CONNECTION",
-        description="Set by sshd: client address and port, server address and port.",
+        description=(
+            "Set by sshd: the client's address and port, then the server's. When "
+            + "set, every log line carries `ssh_client`."
+        ),
     )
 
     @property
@@ -423,6 +439,14 @@ class SessionSettings(AftMcpSettings, group="session"):
         """``ip:port`` of the SSH client, when the server runs in an SSH session."""
         fields = (self.ssh_connection or "").split()
         return f"{fields[0]}:{fields[1]}" if len(fields) >= 2 else None
+
+
+# Settings read from the environment only, never from .env: where .env and the secret
+# files are, and what sshd or systemd set. The reference lists them after GROUPS.
+ENVIRONMENT_ONLY: dict[str, type[AftMcpSettings]] = {
+    "paths": PathSettings,
+    "session": SessionSettings,
+}
 
 
 _DEFAULT_PORTS = {"http": 80, "https": 443}

@@ -16,6 +16,7 @@ from aft_mcp.audit import configure_logging
 from aft_mcp.settings import (
     GROUPS,
     AftMcpSettings,
+    SessionSettings,
     Settings,
     SettingsError,
     load_paths,
@@ -149,9 +150,15 @@ def show_settings() -> int:
     except SettingsError as error:
         print(error)
         return 1
-    for attribute, group in GROUPS.items():
+    sections: list[AftMcpSettings] = [
+        *(getattr(settings, attribute) for attribute in GROUPS),
+        # Read from the environment only; never from .env or a secret file.
+        load_paths(),
+        SessionSettings(),
+    ]
+    for values in sections:
+        group = type(values)
         print(f"# {group.title}")
-        values: AftMcpSettings = getattr(settings, attribute)
         for field in group.model_fields:
             variable = group.env_name(field)
             value = _shown(getattr(values, field))

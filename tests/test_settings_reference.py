@@ -89,6 +89,15 @@ def test_the_reference_describes_each_variable() -> None:
     assert "| `AFT_MCP_READ_ONLY` | no | true or false | `false` | any |" in doc
     assert "comma-separated list of whole numbers | unset | each more than 0" in doc
     assert "| `AFT_MCP_TOKEN` | no | secret | unset | not empty |" in doc
+    # Environment-only settings are documented under their real names, aliases too,
+    # but never offered in .env.example.
+    assert "## Read from the environment only" in doc
+    for name in ("AFT_MCP_ENV_FILE", "AFT_MCP_SECRETS_DIR", "CREDENTIALS_DIRECTORY"):
+        assert f"| `{name}` | no | path | unset |" in doc
+    assert "| `SSH_CONNECTION` | no | text | unset |" in doc
+    env_example = reference_files()[ENV_EXAMPLE_PATH]
+    assert "SSH_CONNECTION" not in env_example
+    assert "CREDENTIALS_DIRECTORY" not in env_example
     assert "| `AFT_MCP_LOG_FORMAT` | no | text | `logfmt` | `logfmt` or `json` |" in doc
 
 

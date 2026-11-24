@@ -38,3 +38,21 @@ Every setting is an environment variable. The server reads the process environme
 | `AFT_MCP_LOG_STDERR` | no | true or false | `true` | any | Write the log to stderr. Over SSH, stderr goes back to the client, so a server can set this to false and keep the log in syslog instead. |
 | `AFT_MCP_LOG_SYSLOG` | no | true or false | `false` | any | Also send the log to the local syslog (`/dev/log`), so a server keeps the audit trail itself. A missing socket stops the server. |
 | `AFT_MCP_LOG_SYSLOG_FACILITY` | no | text | `user` | `user` or `auth` or `authpriv` or `daemon` or `local0` or `local1` or `local2` or `local3` or `local4` or `local5` or `local6` or `local7` | Syslog facility for the log; `auth` or `authpriv` puts it next to sshd's lines. |
+
+## Read from the environment only
+
+These are read from the process environment only, never from `.env`: the first two say which `.env` and secret files to read, and the others are set by systemd or sshd. They are not in `.env.example`.
+
+### Where the settings are read from
+
+| Variable | Required | Type | Default | Allowed values | Description |
+| --- | --- | --- | --- | --- | --- |
+| `AFT_MCP_ENV_FILE` | no | path | unset | any | The `.env` file to read instead of `aft-mcp/.env` in your config directory; it must exist. |
+| `AFT_MCP_SECRETS_DIR` | no | path | unset | any | A directory of secret files, each named after a variable (such as `AFT_MCP_TOKEN`) and holding its value; it must exist. |
+| `CREDENTIALS_DIRECTORY` | no | path | unset | any | Set by systemd for `LoadCredential=`; the secret files' directory when `AFT_MCP_SECRETS_DIR` isn't set. |
+
+### The session
+
+| Variable | Required | Type | Default | Allowed values | Description |
+| --- | --- | --- | --- | --- | --- |
+| `SSH_CONNECTION` | no | text | unset | any | Set by sshd: the client's address and port, then the server's. When set, every log line carries `ssh_client`. |

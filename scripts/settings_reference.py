@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from aft_mcp.settings import GROUPS, AftMcpSettings
+from aft_mcp.settings import ENVIRONMENT_ONLY, GROUPS, AftMcpSettings
 
 ENV_EXAMPLE_PATH = ".env.example"
 SETTINGS_DOC_PATH = "docs/settings.md"
@@ -147,7 +147,7 @@ def build_entries(group: type[AftMcpSettings]) -> list[SettingEntry]:
         default = field.get("default")
         entries.append(
             SettingEntry(
-                env_name=f"{prefix}{name.upper()}",
+                env_name=_variable(group, name, prefix),
                 required="yes" if name in required else "no",
                 type_label=type_label,
                 allowed=allowed,
@@ -161,12 +161,39 @@ def build_entries(group: type[AftMcpSettings]) -> list[SettingEntry]:
     return entries
 
 
+def _variable(group: type[AftMcpSettings], name: str, prefix: str) -> str:
+    """The variable for a schema property: a field's name, or a field's alias.
+
+    The JSON Schema keys an aliased field (``SSH_CONNECTION``) by its alias, which is
+    already the variable's name.
+    """
+    if name in group.model_fields:
+        return group.env_name(name)
+    aliases = {field.validation_alias for field in group.model_fields.values()}
+    return name if name in aliases else f"{prefix}{name.upper()}"
+
+
 def build_sections() -> list[SettingsSection]:
     """One section per settings group, in ``GROUPS`` order."""
     return [
         SettingsSection(title=group.title, entries=build_entries(group))
         for group in GROUPS.values()
     ]
+
+
+def build_environment_only_sections() -> list[SettingsSection]:
+    """The settings read from the environment only (``ENVIRONMENT_ONLY``)."""
+    return [
+        SettingsSection(title=group.title, entries=build_entries(group))
+        for group in ENVIRONMENT_ONLY.values()
+    ]
+
+
+ENVIRONMENT_ONLY_INTRO = (
+    "These are read from the process environment only, never from `.env`: the "
+    + "first two say which `.env` and secret files to read, and the others are set "
+    + "by systemd or sshd. They are not in `.env.example`."
+)
 
 
 def _dotenv_value(value: str) -> str:
@@ -227,8 +254,15 @@ def _notes(entry: SettingEntry) -> str:
     return " ".join(notes)
 
 
-def render_settings_doc(sections: list[SettingsSection]) -> str:
-    """Render the settings reference: one heading and table per group."""
+def render_settings_doc(
+    sections: list[SettingsSection],
+    environment_only: list[SettingsSection] | None = None,
+) -> str:
+    """Render the settings reference: one heading and table per group.
+
+    The environment-only settings follow under their own heading, as a group's
+    subsections.
+    """
     lines = [
         "# Settings reference",
         "",
@@ -238,6 +272,10 @@ def render_settings_doc(sections: list[SettingsSection]) -> str:
     ]
     for section in sections:
         lines += ["", f"## {section.title}", "", *_table(section.entries)]
+    if environment_only:
+        lines += ["", "## Read from the environment only", "", ENVIRONMENT_ONLY_INTRO]
+        for section in environment_only:
+            lines += ["", f"### {section.title}", "", *_table(section.entries)]
     return "\n".join(lines) + "\n"
 
 
@@ -269,7 +307,9 @@ def reference_files() -> dict[str, str]:
     sections = build_sections()
     return {
         ENV_EXAMPLE_PATH: render_env_example(sections),
-        SETTINGS_DOC_PATH: render_settings_doc(sections),
+        SETTINGS_DOC_PATH: render_settings_doc(
+            sections, build_environment_only_sections()
+        ),
     }
 
 

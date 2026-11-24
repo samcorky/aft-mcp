@@ -30,6 +30,7 @@ def aft_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     for name in [name for name in os.environ if name.startswith("AFT_MCP_")]:
         monkeypatch.delenv(name)
     monkeypatch.delenv("CREDENTIALS_DIRECTORY", raising=False)
+    monkeypatch.delenv("SSH_CONNECTION", raising=False)  # set when tests run over SSH
     for name, value in ENV.items():
         monkeypatch.setenv(name, value)
     return ENV

@@ -196,6 +196,7 @@ def test_settings_shows_values_and_sources_with_secrets_masked(
     (secrets / "AFT_MCP_READ_ONLY").write_text("true", encoding="utf-8")
     monkeypatch.setenv("AFT_MCP_ENV_FILE", str(env_file))
     monkeypatch.setenv("AFT_MCP_SECRETS_DIR", str(secrets))
+    monkeypatch.setenv("SSH_CONNECTION", "203.0.113.5 52114 192.0.2.1 22")
 
     assert run("settings") == 0
     out = capsys.readouterr().out
@@ -206,6 +207,11 @@ def test_settings_shows_values_and_sources_with_secrets_masked(
     assert rows["AFT_MCP_READ_ONLY"] == ["True", str(secrets / "AFT_MCP_READ_ONLY")]
     assert rows["AFT_MCP_PASSWORD"] == [cli.MASK, "environment"]
     assert rows["AFT_MCP_TOKEN"] == ["unset", "default"]
+    # Read from the environment only.
+    assert rows["AFT_MCP_ENV_FILE"] == [str(env_file), "environment"]
+    assert rows["AFT_MCP_SECRETS_DIR"] == [str(secrets), "environment"]
+    assert rows["SSH_CONNECTION"][-1] == "environment"
+    assert rows["CREDENTIALS_DIRECTORY"] == ["unset", "default"]
     assert aft_env["AFT_MCP_PASSWORD"] not in out
 
 
